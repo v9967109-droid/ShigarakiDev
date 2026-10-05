@@ -7947,19 +7947,29 @@ end
 getgenv().__AQState = getgenv().__AQState or { doneSince = nil }
 getgenv().__KatakuriQuestCooldownUntil = getgenv().__KatakuriQuestCooldownUntil or 0
 
--- Katakuri only: change the Auto Quest toggle through the UI itself.
+-- Katakuri only: change the Auto Quest toggle through the real UI control.
 local function SetKatakuriAutoQuestToggle(value)
 	local changed = false
+
 	pcall(function()
 		local opt = Options and Options["Auto Quest"]
-		if opt and opt.FunctionCreate and opt.FunctionCreate.SetValue then
+
+		-- Primary UI-library API used by the source.
+		if opt and opt.FunctionCreate and type(opt.FunctionCreate.SetValue) == "function" then
 			opt.FunctionCreate:SetValue(value)
 			changed = true
 		end
+
+		-- Compatibility fallback for versions where SetValue belongs to the option itself.
+		if opt and type(opt.SetValue) == "function" then
+			opt:SetValue(value)
+			changed = true
+		end
 	end)
-	if not changed then
-		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", value)
-	end
+
+	-- Always keep the saved/internal state synchronized with the visual toggle.
+	SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", value)
+	return changed
 end
 
 spawn(function()
