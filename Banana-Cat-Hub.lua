@@ -20410,21 +20410,14 @@ end
 
 local function SetMultiPrehistoricForward(vehicleSeat, enabled)
 	if not vehicleSeat or not vehicleSeat.Parent then return end
-	local UserInputService = game:GetService("UserInputService")
-	local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-	if isMobile then
-		pcall(function()
-			vehicleSeat.ThrottleFloat = enabled and 1 or 0
-		end)
-		pcall(function()
-			vehicleSeat.Throttle = enabled and 1 or 0
-		end)
-	else
-		pcall(function()
-			local vim = game:GetService("VirtualInputManager")
-			vim:SendKeyEvent(enabled, Enum.KeyCode.W, false, game)
-		end)
-	end
+	-- Usa exclusivamente o movimento nativo do Roblox pelo VehicleSeat.
+	-- Não envia W/VirtualInputManager e funciona tanto no celular quanto no PC.
+	pcall(function()
+		vehicleSeat.ThrottleFloat = enabled and 1 or 0
+	end)
+	pcall(function()
+		vehicleSeat.Throttle = enabled and 1 or 0
+	end)
 end
 
 function AutoMultiFindPrehistoric()
@@ -20475,9 +20468,6 @@ function AutoMultiFindPrehistoric()
 			getgenv().MultiPrehistoricWaitingNotiTime = nil
 			getgenv().MultiPrehistoricSpawnNoti = false
 			getgenv().MultiPrehistoricMovingForward = false
-			pcall(function()
-				game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
-			end)
 			if getgenv().TweenBoat then
 				getgenv().TweenBoat:Pause()
 				getgenv().TweenBoat:Cancel()
@@ -20589,11 +20579,11 @@ function AutoMultiFindPrehistoric()
 			return
 		end
 
-		-- Mantém W pressionado até 650 studs, sem limite artificial de tempo.
+		-- Mantém o movimento nativo do Roblox para frente até 650 studs, sem limite artificial de tempo.
 		SetMultiPrehistoricForward(vehicleSeat, true)
 
 		while Settings["Auto Multi Find Prehistoric Island"] and vehicleSeat.Parent do
-			-- Reaplica o W continuamente para que um clique/toque na tela não cancele a entrada.
+			-- Reaplica o movimento nativo continuamente para manter o avanço até os 650 studs.
 			SetMultiPrehistoricForward(vehicleSeat, true)
 			if workspace.Map:FindFirstChild("PrehistoricIsland") then
 				break
