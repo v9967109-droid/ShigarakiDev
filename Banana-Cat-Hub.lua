@@ -7725,6 +7725,7 @@ function FarmMethod()
 		and not Settings["Farm Material"]
 		and (SelectedFarmMethod == "Level Farm" or t.Data.Level.Value >= C)
 		and (not QuestVisible)
+		and not (getgenv().__AQGiveUp and tick() < getgenv().__AQGiveUp)
 	then
 		return
 	end
@@ -7926,41 +7927,131 @@ function AQIsQuestActive()
     return has or shown
 end
 
-spawn(function()
-    while task.wait(0.3) do
-        pcall(function()
-            if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
-                return
-            end
-            if Settings["Farm Mastery"] and Settings["Start Farm"] then
-                return
-            end
+-- ===================== Auto Quest (único responsável por pegar missões) =====================
+-- Os farms (Level, Bones, Katakuri, Tyrant) só farmam: não pegam missão. Quem pega é este módulo.
+-- Passos, sempre nesta ordem, uma tentativa por vez:
+--   1) pré-condições (toggle ligado, personagem vivo, farm de missão selecionado, sem missão ativa);
+--   2) descobre a missão do farm (Level: pelo nível; Bones/Katakuri/Tyrant: AutoQuestInfo);
+--   3) vai até o NPC e espera 0,8s parado nele;
+--   4) inicia a missão UMA vez e confere se ela abriu (até 3s);
+--   5) falhou: espera cada vez mais (2s, 4s, ... até 10s); depois de 6 falhas seguidas devolve o
+--      controle ao farm por 45s (o farm continua sem missão em vez de ficar parado esperando).
+-- Reexecutar o script não duplica o loop (só a execução mais recente continua).
+getgenv().__AQGen = (getgenv().__AQGen or 0) + 1
+do
+	local MyGen = getgenv().__AQGen
+	local State = { fails = 0, nextTry = 0, atNpcSince = nil, busy = false }
+	getgenv().__AQGiveUp = nil
 
-            local selectedFarm = GetSelectedIndividualFarm()
-            if not selectedFarm then
-                return
-            end
+	local function QuestTarget(selectedFarm)
+		-- Retorna nome da missão, id e a posição do NPC (Vector3) da missão do farm selecionado.
+		if selectedFarm == "Auto Farm Level" then
+			local ok, info = pcall(GetLevelQuestInfo, t.Data.Level.Value)
+			if not ok or type(info) ~= "table" or not info.Pos or not info.QuestName then
+				return nil
+			end
+			local pos = typeof(info.Pos) == "CFrame" and info.Pos.Position or info.Pos
+			return tostring(info.QuestName), info.Id, pos
+		end
+		local q = AutoQuestInfo[selectedFarm]
+		if not q or t.Data.Level.Value < q[1] then
+			return nil
+		end
+		local points = getgenv().questpoint
+		local cf = points and points[q[2]]
+		if not cf then
+			pcall(CFrameQuest)
+			task.wait(1)
+			points = getgenv().questpoint
+			cf = points and points[q[2]]
+		end
+		if not cf then
+			return nil
+		end
+		return q[2], q[3], cf.Position
+	end
 
-            -- Never interfere with an already active quest.
-            if AQIsQuestActive() then
-                return
-            end
+	local function Step()
+		if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
+			State.atNpcSince = nil
+			return
+		end
+		if Settings["Farm Mastery"] and Settings["Start Farm"] then
+			return
+		end
+		local selectedFarm = GetSelectedIndividualFarm()
+		if not selectedFarm or selectedFarm == "Aura Farm" or Settings["Farm Material"] then
+			return
+		end
+		local character = t.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not root or not humanoid or humanoid.Health <= 0 then
+			State.atNpcSince = nil
+			return
+		end
+		-- Missão já ativa: nada a fazer (e zera as falhas).
+		if AQIsQuestActive() then
+			State.fails, State.atNpcSince = 0, nil
+			getgenv().__AQGiveUp = nil
+			return
+		end
+		if tick() < State.nextTry then
+			return
+		end
 
-            -- Level uses the existing level-quest system.
-            if selectedFarm == "Auto Farm Level" then
-                TakeQuestLevel()
-                return
-            end
+		local questName, questId, npcPos = QuestTarget(selectedFarm)
+		if not questName then
+			return
+		end
 
-            -- These farms use their own quest identifiers and the existing
-            -- quest-position logic from the source.
-            local info = AutoQuestInfo[selectedFarm]
-            if info and t.Data.Level.Value >= info[1] then
-                QuestBoneAndkatakuri(info[2], info[3])
-            end
-        end)
-    end
-end)
+		-- 3) vai até o NPC
+		if (npcPos - root.Position).Magnitude > 8 then
+			State.atNpcSince = nil
+			toTarget(CFrame.new(npcPos) * CFrame.new(0, 4, 2), true)
+			return
+		end
+		State.atNpcSince = State.atNpcSince or tick()
+		if tick() - State.atNpcSince < 0.8 then
+			return
+		end
+
+		-- 4) inicia a missão uma vez e confere
+		State.busy = true
+		pcall(function()
+			CommF:InvokeServer("StartQuest", questName, questId)
+		end)
+		local deadline = tick() + 3
+		local opened = false
+		repeat
+			task.wait(0.1)
+			opened = AQIsQuestActive()
+		until opened or tick() > deadline
+		State.busy = false
+		State.atNpcSince = nil
+		if opened then
+			State.fails = 0
+			getgenv().__AQGiveUp = nil
+			State.nextTry = tick() + 1
+		else
+			-- 5) falhou: espera maior a cada falha; muitas falhas -> devolve o controle ao farm
+			State.fails += 1
+			State.nextTry = tick() + math.min(2 * State.fails, 10)
+			if State.fails >= 6 then
+				getgenv().__AQGiveUp = tick() + 45
+				State.fails = 0
+			end
+		end
+	end
+
+	spawn(function()
+		while task.wait(0.25) and getgenv().__AQGen == MyGen do
+			if not State.busy then
+				pcall(Step)
+			end
+		end
+	end)
+end
 
 local function HauntedCastleMasteryFarm()
 	if not Settings["Farm Mastery"] or not Settings["Start Farm"] then
