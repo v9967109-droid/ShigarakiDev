@@ -20511,12 +20511,28 @@ function AutoMultiFindPrehistoric()
 		local startPosition = vehicleSeat.Position
 		local startTime = tick()
 
-		-- Dá um único pulo antes de pressionar W para garantir que o comando de movimento seja reconhecido.
+		-- Dá um único pulo e espera o personagem voltar ao VehicleSeat antes de pressionar W.
 		pcall(function()
 			vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
 			task.wait(0.08)
 			vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
 		end)
+
+		local sitStart = tick()
+		while Settings["Auto Multi Find Prehistoric Island"]
+			and vehicleSeat.Parent
+			and t.Character
+			and t.Character:FindFirstChildOfClass("Humanoid")
+			and t.Character:FindFirstChildOfClass("Humanoid").SeatPart ~= vehicleSeat
+			and tick() - sitStart < 5 do
+			task.wait(0.1)
+		end
+
+		local seatedHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+		if not seatedHumanoid or seatedHumanoid.SeatPart ~= vehicleSeat then
+			getgenv().MultiPrehistoricMovingForward = false
+			return
+		end
 
 		-- Pressiona W de verdade para movimentar o barco, em vez de teletransportá-lo.
 		pcall(function()
