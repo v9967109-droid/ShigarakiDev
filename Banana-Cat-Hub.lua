@@ -20389,6 +20389,25 @@ function IsSelectedPlayersSeatedInMyBoat()
 	return true
 end
 
+local function SetMultiPrehistoricForward(vehicleSeat, enabled)
+	if not vehicleSeat or not vehicleSeat.Parent then return end
+	local UserInputService = game:GetService("UserInputService")
+	local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	if isMobile then
+		pcall(function()
+			vehicleSeat.ThrottleFloat = enabled and 1 or 0
+		end)
+		pcall(function()
+			vehicleSeat.Throttle = enabled and 1 or 0
+		end)
+	else
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			vim:SendKeyEvent(enabled, Enum.KeyCode.W, false, game)
+		end)
+	end
+end
+
 function AutoMultiFindPrehistoric()
 	if not Settings["Auto Multi Find Prehistoric Island"] then
 		return
@@ -20397,9 +20416,11 @@ function AutoMultiFindPrehistoric()
 	-- Enquanto a Prehistoric Island estiver spawnada, o Multi Find fica totalmente pausado.
 	-- Ele não tenta comprar barco, reunir jogadores ou procurar a ilha novamente.
 	if workspace.Map:FindFirstChild("PrehistoricIsland") then
-		pcall(function()
-			game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
-		end)
+		local spawnedBoat = checkboat()
+		local spawnedSeat = spawnedBoat and spawnedBoat:FindFirstChild("VehicleSeat", true)
+		if spawnedSeat and spawnedSeat:IsA("VehicleSeat") then
+			SetMultiPrehistoricForward(spawnedSeat, false)
+		end
 		getgenv().MultiPrehistoricMovingForward = false
 		getgenv().MultiPrehistoricTwoMeterDone = false
 		if not getgenv().MultiPrehistoricSpawnNoti then
@@ -20523,9 +20544,7 @@ function AutoMultiFindPrehistoric()
 	local localHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
 	if not localHumanoid or localHumanoid.SeatPart ~= vehicleSeat then
 		getgenv().MultiPrehistoricMovingForward = false
-		pcall(function()
-			game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
-		end)
+		SetMultiPrehistoricForward(vehicleSeat, false)
 		toTarget(vehicleSeat.CFrame)
 		return
 	end
@@ -20533,7 +20552,6 @@ function AutoMultiFindPrehistoric()
 	-- Só começa o avanço quando todos os selecionados estiverem realmente sentados.
 	if not getgenv().MultiPrehistoricTwoMeterDone then
 		getgenv().MultiPrehistoricMovingForward = true
-		local vim = game:GetService("VirtualInputManager")
 		local startPosition = vehicleSeat.Position
 
 		-- Dá 1 segundo para o VehicleSeat/canhão estabilizar.
@@ -20541,23 +20559,23 @@ function AutoMultiFindPrehistoric()
 
 		-- Revalida tudo depois da espera.
 		if workspace.Map:FindFirstChild("PrehistoricIsland") then
-			pcall(function() vim:SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+			SetMultiPrehistoricForward(vehicleSeat, false)
 			getgenv().MultiPrehistoricMovingForward = false
 			return
 		end
 		localHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
 		if not localHumanoid or localHumanoid.SeatPart ~= vehicleSeat or not IsSelectedPlayersSeatedInMyBoat() then
-			pcall(function() vim:SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+			SetMultiPrehistoricForward(vehicleSeat, false)
 			getgenv().MultiPrehistoricMovingForward = false
 			return
 		end
 
 		-- Mantém W pressionado até 650 studs, sem limite artificial de tempo.
-		pcall(function()
-			vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-		end)
+		SetMultiPrehistoricForward(vehicleSeat, true)
 
 		while Settings["Auto Multi Find Prehistoric Island"] and vehicleSeat.Parent do
+			-- Reaplica o W continuamente para que um clique/toque na tela não cancele a entrada.
+			SetMultiPrehistoricForward(vehicleSeat, true)
 			if workspace.Map:FindFirstChild("PrehistoricIsland") then
 				break
 			end
@@ -20575,9 +20593,7 @@ function AutoMultiFindPrehistoric()
 			task.wait()
 		end
 
-		pcall(function()
-			vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-		end)
+		SetMultiPrehistoricForward(vehicleSeat, false)
 		getgenv().MultiPrehistoricMovingForward = false
 
 		-- Se saiu do barco ou algum selecionado saiu, não chama a caça da ilha.
