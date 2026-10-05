@@ -20702,7 +20702,60 @@ function GoToPrehistoricIslandForMultiEvent()
 	if onIsland then
 		return true
 	end
-	toTarget(islandCFrame)
+
+	-- Só pula quando realmente for iniciar o deslocamento para a ilha.
+	-- É um único pulo para sair do barco; não repete enquanto procura a ilha.
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.SeatPart then
+		if not getgenv().MultiPrehistoricEventJumped then
+			getgenv().MultiPrehistoricEventJumped = true
+			humanoid.Jump = true
+			local jumpStart = tick()
+			repeat
+				task.wait()
+			until not humanoid.SeatPart or tick() - jumpStart >= 2
+		end
+		if humanoid.SeatPart then
+			return false
+		end
+	end
+
+	-- Para o Multi Event, o destino inicial é perto da Relic Health,
+	-- e não o topo do vulcão. Procura dinamicamente o objeto da Relic Health.
+	local relicTarget
+	local relic = island:FindFirstChild("PrehistoricRelic", true)
+	if relic then
+		for _, obj in ipairs(relic:GetDescendants()) do
+			local n = string.lower(obj.Name):gsub("[%s_%-%."]", "")
+			if string.find(n, "relichealth", 1, true) or string.find(n, "health", 1, true) then
+				relicTarget = obj
+				break
+			end
+		end
+		if not relicTarget and relic:IsA("BasePart") then
+			relicTarget = relic
+		end
+	end
+
+	local targetCFrame
+	if relicTarget then
+		if relicTarget:IsA("BasePart") then
+			targetCFrame = relicTarget.CFrame * CFrame.new(0, 3, 10)
+		elseif relicTarget:IsA("Model") then
+			targetCFrame = relicTarget:GetPivot() * CFrame.new(0, 3, 10)
+		end
+	elseif relic then
+		targetCFrame = relic:IsA("Model") and (relic:GetPivot() * CFrame.new(0, 3, 10)) or relic.CFrame * CFrame.new(0, 3, 10)
+	end
+
+	if targetCFrame then
+		if (root.Position - targetCFrame.Position).Magnitude > 20 then
+			toTarget(targetCFrame)
+		end
+	else
+		-- Fallback seguro: ponto central da ilha, sem subir para o vulcão.
+		toTarget(islandCFrame * CFrame.new(0, 0, math.min(20, checkSize.Z / 4)))
+	end
 	return false
 end
 
@@ -21440,6 +21493,7 @@ FarmingMultiVulcanoSection.CreateToggle(
 		getgenv().MultiPrehistoricEventStartedNoti = false
 		getgenv().MultiPrehistoricEventWaitingNoti = false
 		getgenv().MultiPrehistoricEventWaitingNotiTime = nil
+		getgenv().MultiPrehistoricEventJumped = false
 		if value then
 			spawn(function()
 				while Settings["Auto Multi Event Prehistoric Island"] and wait(0.1) do
