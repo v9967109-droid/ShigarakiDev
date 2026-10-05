@@ -20428,7 +20428,15 @@ function AutoMultiFindPrehistoric()
 	if boat and boat.Parent then
 		local boatSeat = boat:FindFirstChild("VehicleSeat", true)
 		local tikiPosition = Vector3.new(-16204.0810546875, 9.0863618850708, 479.2259521484375)
-		if boatSeat and boatSeat:IsA("VehicleSeat") and (boatSeat.Position - tikiPosition).Magnitude >= 4000 then
+		local character = t.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local playerNearBoat = false
+		if boatSeat and boatSeat:IsA("VehicleSeat") and root then
+			-- Se o jogador já estiver junto do barco (inclusive no mar),
+			-- não compre outro barco só porque o barco está longe do Tiki.
+			playerNearBoat = (root.Position - boatSeat.Position).Magnitude <= 350
+		end
+		if boatSeat and boatSeat:IsA("VehicleSeat") and (boatSeat.Position - tikiPosition).Magnitude >= 4000 and not playerNearBoat then
 			getgenv().MultiPrehistoricTwoMeterDone = false
 			getgenv().MultiPrehistoricWaitingNoti = false
 			getgenv().MultiPrehistoricWaitingNotiTime = nil
