@@ -20361,17 +20361,44 @@ function IsSelectedPlayersSeatedInMyBoat()
 	if not boat or not boat.Parent then
 		return false
 	end
-	local function isBoatSeat(seat)
-		if not seat or not seat:IsA("Seat") and not seat:IsA("VehicleSeat") then
+
+	-- Considera o jogador dentro do barco tanto quando estiver sentado
+	-- quanto quando já estiver sobre a estrutura/deck do barco.
+	local function isPlayerInMyBoat(player)
+		local character = player and player.Character
+		if not character then
 			return false
 		end
-		return seat:IsDescendantOf(boat)
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if not humanoid or not root then
+			return false
+		end
+
+		local seat = humanoid.SeatPart
+		if seat and (seat:IsA("Seat") or seat:IsA("VehicleSeat")) and seat:IsDescendantOf(boat) then
+			return true
+		end
+
+		-- Fallback para quem já está fisicamente dentro/sobre o barco,
+		-- mesmo que ainda não esteja sentado.
+		local ok, cf, size = pcall(function()
+			return boat:GetBoundingBox()
+		end)
+		if ok and cf and size then
+			local localPos = cf:PointToObjectSpace(root.Position)
+			local margin = Vector3.new(8, 12, 8)
+			local half = (size / 2) + margin
+			return math.abs(localPos.X) <= half.X
+				and math.abs(localPos.Y) <= half.Y
+				and math.abs(localPos.Z) <= half.Z
+		end
+
+		return false
 	end
+
 	for _, player in ipairs(selected) do
-		local character = player.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		local seat = humanoid and humanoid.SeatPart
-		if not humanoid or not humanoid.Sit or not isBoatSeat(seat) then
+		if not isPlayerInMyBoat(player) then
 			return false
 		end
 	end
@@ -20439,7 +20466,6 @@ function AutoMultiFindPrehistoric()
 		end
 
 		getgenv().MultiPrehistoricMovingForward = true
-		getgenv().MultiPrehistoricTwoMeterDone = true
 
 		local vim = game:GetService("VirtualInputManager")
 		local startPosition = vehicleSeat.Position
