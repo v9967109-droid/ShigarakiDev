@@ -20393,13 +20393,33 @@ function AutoMultiFindPrehistoric()
 	if not Settings["Auto Multi Find Prehistoric Island"] then
 		return
 	end
+
+	-- Enquanto a Prehistoric Island estiver spawnada, o Multi Find fica totalmente pausado.
+	-- Ele não tenta comprar barco, reunir jogadores ou procurar a ilha novamente.
+	if workspace.Map:FindFirstChild("PrehistoricIsland") then
+		pcall(function()
+			game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
+		end)
+		getgenv().MultiPrehistoricMovingForward = false
+		getgenv().MultiPrehistoricTwoMeterDone = false
+		if not getgenv().MultiPrehistoricSpawnNoti then
+			getgenv().MultiPrehistoricSpawnNoti = true
+			A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Prehistoric Island Spawned", ShowTime = 5 })
+		end
+		return
+	else
+		-- A busca volta a ficar disponível somente depois que a ilha desaparecer.
+		getgenv().MultiPrehistoricSpawnNoti = false
+	end
+
 	local selected = GetSelectedMultiPrehistoricPlayers()
 	if #selected == 0 then
 		return
 	end
+
 	local boat = checkboat()
 	-- Se já existe um barco, mas ele está muito longe do Tiki, não use o barco antigo.
-	-- Volta ao Boat Dealer do Tiki e compra um novo Beast Hunter para o Multi Find.
+	-- Só compra outro se o jogador local também estiver longe do barco.
 	if boat and boat.Parent then
 		local boatSeat = boat:FindFirstChild("VehicleSeat", true)
 		local tikiPosition = Vector3.new(-16204.0810546875, 9.0863618850708, 479.2259521484375)
@@ -20407,21 +20427,21 @@ function AutoMultiFindPrehistoric()
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local playerNearBoat = false
 		if boatSeat and boatSeat:IsA("VehicleSeat") and root then
-			-- Se o jogador já estiver junto do barco (inclusive no mar),
-			-- não compre outro barco só porque o barco está longe do Tiki.
 			playerNearBoat = (root.Position - boatSeat.Position).Magnitude <= 350
 		end
 		if boatSeat and boatSeat:IsA("VehicleSeat") and (boatSeat.Position - tikiPosition).Magnitude >= 4000 and not playerNearBoat then
 			getgenv().MultiPrehistoricTwoMeterDone = false
 			getgenv().MultiPrehistoricWaitingNoti = false
 			getgenv().MultiPrehistoricWaitingNotiTime = nil
+			getgenv().MultiPrehistoricSpawnNoti = false
 			getgenv().MultiPrehistoricMovingForward = false
+			pcall(function()
+				game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
+			end)
 			if getgenv().TweenBoat then
 				getgenv().TweenBoat:Pause()
 				getgenv().TweenBoat:Cancel()
 			end
-			local character = t.Character
-			local root = character and character:FindFirstChild("HumanoidRootPart")
 			if not root then
 				return
 			end
@@ -20434,10 +20454,11 @@ function AutoMultiFindPrehistoric()
 				return
 			end
 			game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BuyBoat", "Beast Hunter")
-			wait(3)
+			task.wait(3)
 			return
 		end
 	end
+
 	if not boat then
 		getgenv().MultiPrehistoricTwoMeterDone = false
 		local character = t.Character
@@ -20445,8 +20466,6 @@ function AutoMultiFindPrehistoric()
 		if not root then
 			return
 		end
-		-- Auto Multi Find Prehistoric: go to the Boat Dealer before buying Beast Hunter.
-		-- This is isolated to this function and does not change the other boat systems.
 		local boatShop = CFrame.new(-16204.0810546875, 9.0863618850708, 479.2259521484375)
 		if game.PlaceId ~= getgenv().CheckPlaceId then
 			boatShop = CFrame.new(-13.488054275512695, 10.311711311340332, 2927.692)
@@ -20456,15 +20475,16 @@ function AutoMultiFindPrehistoric()
 			return
 		end
 		game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BuyBoat", "Beast Hunter")
-		wait(3)
+		task.wait(3)
 		return
 	end
+
 	local vehicleSeat = boat:FindFirstChild("VehicleSeat", true)
 	if not vehicleSeat or not vehicleSeat:IsA("VehicleSeat") then
 		return
 	end
+
 	if not IsSelectedPlayersSeatedInMyBoat() then
-		-- Verifica novamente os selecionados a cada ciclo e mostra apenas quem ainda falta.
 		local missingPlayers = {}
 		local selectedNow = GetSelectedMultiPrehistoricPlayers()
 		local currentBoat = checkboat()
@@ -20472,17 +20492,16 @@ function AutoMultiFindPrehistoric()
 			for _, player in ipairs(selectedNow) do
 				local character = player.Character
 				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-				local root = character and character:FindFirstChild("HumanoidRootPart")
-				local inBoat = false
-				if humanoid and humanoid.SeatPart and (humanoid.SeatPart:IsA("Seat") or humanoid.SeatPart:IsA("VehicleSeat")) and humanoid.SeatPart:IsDescendantOf(currentBoat) then
-					inBoat = true
-				end
+				local seat = humanoid and humanoid.SeatPart
+				local inBoat = seat and (seat:IsA("Seat") or seat:IsA("VehicleSeat")) and seat:IsDescendantOf(currentBoat) or false
 				if not inBoat then
 					table.insert(missingPlayers, player.Name)
 				end
 			end
 		else
-			for _, player in ipairs(selectedNow) do table.insert(missingPlayers, player.Name) end
+			for _, player in ipairs(selectedNow) do
+				table.insert(missingPlayers, player.Name)
+			end
 		end
 		local now = tick()
 		if not getgenv().MultiPrehistoricWaitingNoti or not getgenv().MultiPrehistoricWaitingNotiTime or now - getgenv().MultiPrehistoricWaitingNotiTime >= 2 then
@@ -20494,53 +20513,65 @@ function AutoMultiFindPrehistoric()
 			end
 			A.CreateNoti({ Title = "Banana Cat Hub", Desc = desc, ShowTime = 2 })
 		end
-		if not t.Character.Humanoid.Sit then
+		local localHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+		if localHumanoid and not localHumanoid.Sit then
 			toTarget(vehicleSeat.CFrame)
 		end
 		return
 	end
-	if not t.Character.Humanoid.Sit then
+
+	local localHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+	if not localHumanoid or localHumanoid.SeatPart ~= vehicleSeat then
+		getgenv().MultiPrehistoricMovingForward = false
+		pcall(function()
+			game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
+		end)
 		toTarget(vehicleSeat.CFrame)
 		return
 	end
-	-- Depois que todos os jogadores selecionados entrarem no barco,
-	-- o dono do barco deve avançar fisicamente com W por aproximadamente 650 studs
-	-- antes de iniciar a lógica normal do Auto Find Prehistoric Island.
+
+	-- Só começa o avanço quando todos os selecionados estiverem realmente sentados.
 	if not getgenv().MultiPrehistoricTwoMeterDone then
-		local humanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
-		if not humanoid or humanoid.SeatPart ~= vehicleSeat then
-			toTarget(vehicleSeat.CFrame)
-			return
-		end
-
 		getgenv().MultiPrehistoricMovingForward = true
-
 		local vim = game:GetService("VirtualInputManager")
 		local startPosition = vehicleSeat.Position
-		local startTime = tick()
 
-		-- Todos os jogadores selecionados já estão no barco e o dono está sentado.
-		-- Aguarda 1 segundo antes de acionar W para o VehicleSeat/canhão estabilizar.
+		-- Dá 1 segundo para o VehicleSeat/canhão estabilizar.
 		task.wait(1)
 
-		local seatedHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
-		if not seatedHumanoid or seatedHumanoid.SeatPart ~= vehicleSeat then
+		-- Revalida tudo depois da espera.
+		if workspace.Map:FindFirstChild("PrehistoricIsland") then
+			pcall(function() vim:SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+			getgenv().MultiPrehistoricMovingForward = false
+			return
+		end
+		localHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+		if not localHumanoid or localHumanoid.SeatPart ~= vehicleSeat or not IsSelectedPlayersSeatedInMyBoat() then
+			pcall(function() vim:SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
 			getgenv().MultiPrehistoricMovingForward = false
 			return
 		end
 
-		-- Pressiona W de verdade para movimentar o barco, em vez de teletransportá-lo.
+		-- Mantém W pressionado até 650 studs, sem limite artificial de tempo.
 		pcall(function()
 			vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
 		end)
 
-		while Settings["Auto Multi Find Prehistoric Island"]
-			and vehicleSeat.Parent
-			and t.Character
-			and t.Character:FindFirstChildOfClass("Humanoid")
-			and t.Character:FindFirstChildOfClass("Humanoid").SeatPart == vehicleSeat
-			and (vehicleSeat.Position - startPosition).Magnitude < 650
-			and tick() - startTime < 6 do
+		while Settings["Auto Multi Find Prehistoric Island"] and vehicleSeat.Parent do
+			if workspace.Map:FindFirstChild("PrehistoricIsland") then
+				break
+			end
+			local currentHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+			if not currentHumanoid or currentHumanoid.SeatPart ~= vehicleSeat then
+				break
+			end
+			if not IsSelectedPlayersSeatedInMyBoat() then
+				break
+			end
+			if (vehicleSeat.Position - startPosition).Magnitude >= 650 then
+				getgenv().MultiPrehistoricTwoMeterDone = true
+				break
+			end
 			task.wait()
 		end
 
@@ -20548,6 +20579,34 @@ function AutoMultiFindPrehistoric()
 			vim:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 		end)
 		getgenv().MultiPrehistoricMovingForward = false
+
+		-- Se saiu do barco ou algum selecionado saiu, não chama a caça da ilha.
+		local currentHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+		if workspace.Map:FindFirstChild("PrehistoricIsland") then
+			getgenv().MultiPrehistoricTwoMeterDone = false
+			return
+		end
+		if not currentHumanoid or currentHumanoid.SeatPart ~= vehicleSeat or not IsSelectedPlayersSeatedInMyBoat() then
+			getgenv().MultiPrehistoricTwoMeterDone = false
+			return
+		end
+		if not getgenv().MultiPrehistoricTwoMeterDone then
+			return
+		end
+	end
+
+	-- Nunca chama AutoFind enquanto o dono do barco estiver fora do VehicleSeat.
+	local finalHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
+	if not finalHumanoid or finalHumanoid.SeatPart ~= vehicleSeat then
+		getgenv().MultiPrehistoricTwoMeterDone = false
+		return
+	end
+	if not IsSelectedPlayersSeatedInMyBoat() then
+		getgenv().MultiPrehistoricTwoMeterDone = false
+		return
+	end
+	if workspace.Map:FindFirstChild("PrehistoricIsland") then
+		return
 	end
 
 	if Settings["Auto Multi Find Prehistoric Island"] then
@@ -21473,6 +21532,7 @@ FarmingMultiVulcanoSection.CreateToggle(
 			getgenv().MultiPrehistoricTwoMeterDone = false
 			getgenv().MultiPrehistoricWaitingNoti = false
 			getgenv().MultiPrehistoricWaitingNotiTime = nil
+			getgenv().MultiPrehistoricSpawnNoti = false
 			spawn(function()
 				while Settings["Auto Multi Find Prehistoric Island"] and wait(0.1) do
 					pcall(function()
