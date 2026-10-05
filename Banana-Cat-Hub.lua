@@ -20423,6 +20423,38 @@ function AutoMultiFindPrehistoric()
 		return
 	end
 	local boat = checkboat()
+	-- Se já existe um barco, mas ele está muito longe do Tiki, não use o barco antigo.
+	-- Volta ao Boat Dealer do Tiki e compra um novo Beast Hunter para o Multi Find.
+	if boat and boat.Parent then
+		local boatSeat = boat:FindFirstChild("VehicleSeat", true)
+		local tikiPosition = Vector3.new(-16204.0810546875, 9.0863618850708, 479.2259521484375)
+		if boatSeat and boatSeat:IsA("VehicleSeat") and (boatSeat.Position - tikiPosition).Magnitude >= 4000 then
+			getgenv().MultiPrehistoricTwoMeterDone = false
+			getgenv().MultiPrehistoricWaitingNoti = false
+			getgenv().MultiPrehistoricWaitingNotiTime = nil
+			getgenv().MultiPrehistoricMovingForward = false
+			if getgenv().TweenBoat then
+				getgenv().TweenBoat:Pause()
+				getgenv().TweenBoat:Cancel()
+			end
+			local character = t.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if not root then
+				return
+			end
+			local boatShop = CFrame.new(-16204.0810546875, 9.0863618850708, 479.2259521484375)
+			if game.PlaceId ~= getgenv().CheckPlaceId then
+				boatShop = CFrame.new(-13.488054275512695, 10.311711311340332, 2927.692)
+			end
+			if (boatShop.Position - root.Position).Magnitude > 8 then
+				toTarget(boatShop)
+				return
+			end
+			game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BuyBoat", "Beast Hunter")
+			wait(3)
+			return
+		end
+	end
 	if not boat then
 		getgenv().MultiPrehistoricTwoMeterDone = false
 		local character = t.Character
