@@ -12778,7 +12778,15 @@ function manageTween(J, F, q, c)
 				end
 				W = W:Lerp(P, c / q)
 				J.CFrame = W
-				J.AssemblyLinearVelocity = Vector3.new(0.0, 0.0, 0.0)
+				-- Mantem a velocidade do barco durante o TweenBoat mesmo quando
+				-- ele encosta em alguma superficie/objeto e a fisica tenta desacelera-lo.
+				local direction = (P.Position - J.Position)
+				if direction.Magnitude > 0 then
+					direction = direction.Unit
+					J.AssemblyLinearVelocity = direction * math.max(Y.cap, 40)
+				else
+					J.AssemblyLinearVelocity = Vector3.new(0.0, 0.0, 0.0)
+				end
 				J.AssemblyAngularVelocity = Vector3.new(0.0, 0.0, 0.0)
 			end
 		end
@@ -20513,8 +20521,8 @@ function AutoMultiFindPrehistoric()
 			and t.Character
 			and t.Character:FindFirstChildOfClass("Humanoid")
 			and t.Character:FindFirstChildOfClass("Humanoid").SeatPart == vehicleSeat
-			and (vehicleSeat.Position - startPosition).Magnitude < 100
-			and tick() - startTime < 3 do
+			and (vehicleSeat.Position - startPosition).Magnitude < 500
+			and tick() - startTime < 6 do
 			task.wait()
 		end
 
