@@ -20726,7 +20726,7 @@ function GoToPrehistoricIslandForMultiEvent()
 	local relic = island:FindFirstChild("PrehistoricRelic", true)
 	if relic then
 		for _, obj in ipairs(relic:GetDescendants()) do
-			local n = string.lower(obj.Name):gsub("[%s_%-%."]", "")
+			local n = string.lower(obj.Name):gsub("[%s_%-%.]", "")
 			if string.find(n, "relichealth", 1, true) or string.find(n, "health", 1, true) then
 				relicTarget = obj
 				break
