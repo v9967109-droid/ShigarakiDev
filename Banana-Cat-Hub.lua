@@ -20822,32 +20822,24 @@ function GoToPrehistoricIslandForMultiEvent()
 		end
 	end
 
-	-- Para o Multi Event, o destino inicial é perto da Relic Health,
-	-- e não o topo do vulcão. Procura dinamicamente o objeto da Relic Health.
-	local relicTarget
-	local relic = island:FindFirstChild("PrehistoricRelic", true)
-	if relic then
-		for _, obj in ipairs(relic:GetDescendants()) do
-			local n = string.lower(obj.Name):gsub("[%s_%-%.]", "")
-			if string.find(n, "relichealth", 1, true) or string.find(n, "health", 1, true) then
-				relicTarget = obj
-				break
-			end
-		end
-		if not relicTarget and relic:IsA("BasePart") then
-			relicTarget = relic
+	-- O destino do Multi Event é a Relic Health da ilha: o CRÂNIO.
+	-- Não usa o topo/centro do vulcão como destino.
+	local relicHealthSkull = island:FindFirstChild("Skull", true)
+	if not relicHealthSkull then
+		local relic = island:FindFirstChild("PrehistoricRelic", true)
+		if relic then
+			relicHealthSkull = relic:FindFirstChild("Skull", true)
 		end
 	end
 
 	local targetCFrame
-	if relicTarget then
-		if relicTarget:IsA("BasePart") then
-			targetCFrame = relicTarget.CFrame * CFrame.new(0, 3, 10)
-		elseif relicTarget:IsA("Model") then
-			targetCFrame = relicTarget:GetPivot() * CFrame.new(0, 3, 10)
+	if relicHealthSkull then
+		if relicHealthSkull:IsA("BasePart") then
+			-- Fica ao lado/acima do crânio da Relic Health, sem ir para o topo do vulcão.
+			targetCFrame = relicHealthSkull.CFrame * CFrame.new(0, 3, 10)
+		elseif relicHealthSkull:IsA("Model") then
+			targetCFrame = relicHealthSkull:GetPivot() * CFrame.new(0, 3, 10)
 		end
-	elseif relic then
-		targetCFrame = relic:IsA("Model") and (relic:GetPivot() * CFrame.new(0, 3, 10)) or relic.CFrame * CFrame.new(0, 3, 10)
 	end
 
 	if targetCFrame then
@@ -20855,8 +20847,8 @@ function GoToPrehistoricIslandForMultiEvent()
 			toTarget(targetCFrame)
 		end
 	else
-		-- Fallback seguro: ponto central da ilha, sem subir para o vulcão.
-		toTarget(islandCFrame * CFrame.new(0, 0, math.min(20, checkSize.Z / 4)))
+		-- Se o crânio ainda não estiver disponível, não manda o jogador para o topo.
+		return false
 	end
 	return false
 end
