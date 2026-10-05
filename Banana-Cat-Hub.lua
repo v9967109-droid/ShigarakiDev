@@ -20353,6 +20353,7 @@ function GetSelectedMultiPrehistoricPlayers()
 end
 
 function IsSelectedPlayersSeatedInMyBoat()
+	-- Recalcula a lista de selecionados a cada chamada; nada fica em cache.
 	local selected = GetSelectedMultiPrehistoricPlayers()
 	if #selected == 0 then
 		return false
@@ -20440,11 +20441,42 @@ function AutoMultiFindPrehistoric()
 		return
 	end
 	if not IsSelectedPlayersSeatedInMyBoat() then
+		-- Verifica novamente os selecionados a cada ciclo e mostra apenas quem ainda falta.
+		local missingPlayers = {}
+		local selectedNow = GetSelectedMultiPrehistoricPlayers()
+		local currentBoat = checkboat()
+		if currentBoat and currentBoat.Parent then
+			for _, player in ipairs(selectedNow) do
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local root = character and character:FindFirstChild("HumanoidRootPart")
+				local inBoat = false
+				if humanoid and humanoid.SeatPart and (humanoid.SeatPart:IsA("Seat") or humanoid.SeatPart:IsA("VehicleSeat")) and humanoid.SeatPart:IsDescendantOf(currentBoat) then
+					inBoat = true
+				elseif root then
+					local ok, cf, size = pcall(function() return currentBoat:GetBoundingBox() end)
+					if ok and cf and size then
+						local pos = cf:PointToObjectSpace(root.Position)
+						local half = (size / 2) + Vector3.new(8, 12, 8)
+						inBoat = math.abs(pos.X) <= half.X and math.abs(pos.Y) <= half.Y and math.abs(pos.Z) <= half.Z
+					end
+				end
+				if not inBoat then
+					table.insert(missingPlayers, player.Name)
+				end
+			end
+		else
+			for _, player in ipairs(selectedNow) do table.insert(missingPlayers, player.Name) end
+		end
 		local now = tick()
-		if not getgenv().MultiPrehistoricWaitingNoti or not getgenv().MultiPrehistoricWaitingNotiTime or now - getgenv().MultiPrehistoricWaitingNotiTime >= 5 then
+		if not getgenv().MultiPrehistoricWaitingNoti or not getgenv().MultiPrehistoricWaitingNotiTime or now - getgenv().MultiPrehistoricWaitingNotiTime >= 2 then
 			getgenv().MultiPrehistoricWaitingNoti = true
 			getgenv().MultiPrehistoricWaitingNotiTime = now
-			A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Waiting for selected players to sit in the boat", ShowTime = 5 })
+			local desc = "Waiting for selected players to sit in the boat"
+			if #missingPlayers > 0 then
+				desc = "Waiting for: " .. table.concat(missingPlayers, ", ")
+			end
+			A.CreateNoti({ Title = "Banana Cat Hub", Desc = desc, ShowTime = 2 })
 		end
 		if not t.Character.Humanoid.Sit then
 			toTarget(vehicleSeat.CFrame)
