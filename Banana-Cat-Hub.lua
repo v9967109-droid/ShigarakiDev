@@ -20496,7 +20496,7 @@ function AutoMultiFindPrehistoric()
 		return
 	end
 	-- Depois que todos os jogadores selecionados entrarem no barco,
-	-- o dono do barco deve avançar fisicamente com W por aproximadamente 100 studs
+	-- o dono do barco deve avançar fisicamente com W por aproximadamente 650 studs
 	-- antes de iniciar a lógica normal do Auto Find Prehistoric Island.
 	if not getgenv().MultiPrehistoricTwoMeterDone then
 		local humanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
@@ -20511,6 +20511,13 @@ function AutoMultiFindPrehistoric()
 		local startPosition = vehicleSeat.Position
 		local startTime = tick()
 
+		-- Dá um único pulo antes de pressionar W para garantir que o comando de movimento seja reconhecido.
+		pcall(function()
+			vim:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+			task.wait(0.08)
+			vim:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+		end)
+
 		-- Pressiona W de verdade para movimentar o barco, em vez de teletransportá-lo.
 		pcall(function()
 			vim:SendKeyEvent(true, Enum.KeyCode.W, false, game)
@@ -20521,7 +20528,7 @@ function AutoMultiFindPrehistoric()
 			and t.Character
 			and t.Character:FindFirstChildOfClass("Humanoid")
 			and t.Character:FindFirstChildOfClass("Humanoid").SeatPart == vehicleSeat
-			and (vehicleSeat.Position - startPosition).Magnitude < 500
+			and (vehicleSeat.Position - startPosition).Magnitude < 650
 			and tick() - startTime < 6 do
 			task.wait()
 		end
