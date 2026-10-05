@@ -12796,6 +12796,25 @@ function manageTween(J, F, q, c)
 	end)
 	return D
 end
+
+-- Restaura a velocidade configurada do Tween Boat a cada 5 segundos.
+-- Se a velocidade/cap tiver sido reduzida pela fisica ou por uma colisao,
+-- o valor salvo em Value Speed Tween Boat volta a ser aplicado automaticamente.
+task.spawn(function()
+	while task.wait(5) do
+		pcall(function()
+			local configuredSpeed = math.clamp(tonumber(Settings["Value Speed Tween Boat"]) or 390, 1, 390)
+			local activeTween = getgenv().TweenBoat
+			if activeTween and activeTween.PlaybackState == Enum.PlaybackState.Playing then
+				activeTween.Speed = configuredSpeed
+				Y.cap = configuredSpeed
+				Y.ceiling = configuredSpeed
+				Y.nextRaise = 0
+			end
+		end)
+	end
+end)
+
 local function l(y, P, Y)
 	if not (y and (y:FindFirstChild("VehicleSeat"))) then
 		return
@@ -21571,7 +21590,7 @@ FarmingMultiVulcanoSection.CreateToggle(
 )
 
 FarmingMultiVulcanoSection.CreateToggle(
-	{ Title = "Auto Multi Event Prehistoric Island", Desc = "Same event logic as Auto Event Prehistoric Island", Default = Settings["Auto Multi Event Prehistoric Island"] or false },
+	{ Title = "Auto Multi Event Prehistoric Island", Desc = "Multi Farming Volcano — Farm the Prehistoric Volcano with selected players.", Default = Settings["Auto Multi Event Prehistoric Island"] or false },
 	function(value)
 		SaveSettings("Auto Multi Event Prehistoric Island", value)
 		getgenv().MultiPrehistoricEventStartedNoti = false
