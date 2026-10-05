@@ -7947,6 +7947,21 @@ end
 getgenv().__AQState = getgenv().__AQState or { doneSince = nil }
 getgenv().__KatakuriQuestCooldownUntil = getgenv().__KatakuriQuestCooldownUntil or 0
 
+-- Katakuri only: change the Auto Quest toggle through the UI itself.
+local function SetKatakuriAutoQuestToggle(value)
+	local changed = false
+	pcall(function()
+		local opt = Options and Options["Auto Quest"]
+		if opt and opt.FunctionCreate and opt.FunctionCreate.SetValue then
+			opt.FunctionCreate:SetValue(value)
+			changed = true
+		end
+	end)
+	if not changed then
+		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", value)
+	end
+end
+
 spawn(function()
 	while task.wait(0.3) do
 		pcall(function()
@@ -7980,8 +7995,16 @@ spawn(function()
 			if info and t.Data.Level.Value >= info[1] then
 				local accepted = QuestBoneAndkatakuri(info[2], info[3])
 				if selectedFarm == "Auto Farm Katakuri" and accepted then
-					SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", false)
-					getgenv().__KatakuriQuestCooldownUntil = tick() + 46
+					-- Give the NPC/quest interaction one second to finish, then turn
+					-- the Auto Quest toggle OFF through the actual UI control.
+					task.delay(1, function()
+						pcall(function()
+							if Settings["Auto Farm Katakuri"] then
+								SetKatakuriAutoQuestToggle(false)
+								getgenv().__KatakuriQuestCooldownUntil = tick() + 46
+							end
+						end)
+					end)
 				end
 			elseif selectedFarm == "Auto Farm Level" then
 				TakeQuestLevel()
