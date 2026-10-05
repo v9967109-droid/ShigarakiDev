@@ -20371,39 +20371,14 @@ function IsSelectedPlayersSeatedInMyBoat()
 		return false
 	end
 
-	-- Considera o jogador dentro do barco tanto quando estiver sentado
-	-- quanto quando já estiver sobre a estrutura/deck do barco.
+	-- O jogador só é considerado dentro do barco quando estiver sentado em um Seat/VehicleSeat que pertença ao barco.
 	local function isPlayerInMyBoat(player)
 		local character = player and player.Character
-		if not character then
-			return false
-		end
+		if not character then return false end
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		local root = character:FindFirstChild("HumanoidRootPart")
-		if not humanoid or not root then
-			return false
-		end
-
+		if not humanoid then return false end
 		local seat = humanoid.SeatPart
-		if seat and (seat:IsA("Seat") or seat:IsA("VehicleSeat")) and seat:IsDescendantOf(boat) then
-			return true
-		end
-
-		-- Fallback para quem já está fisicamente dentro/sobre o barco,
-		-- mesmo que ainda não esteja sentado.
-		local ok, cf, size = pcall(function()
-			return boat:GetBoundingBox()
-		end)
-		if ok and cf and size then
-			local localPos = cf:PointToObjectSpace(root.Position)
-			local margin = Vector3.new(8, 12, 8)
-			local half = (size / 2) + margin
-			return math.abs(localPos.X) <= half.X
-				and math.abs(localPos.Y) <= half.Y
-				and math.abs(localPos.Z) <= half.Z
-		end
-
-		return false
+		return seat ~= nil and (seat:IsA("Seat") or seat:IsA("VehicleSeat")) and seat:IsDescendantOf(boat)
 	end
 
 	for _, player in ipairs(selected) do
@@ -20501,13 +20476,6 @@ function AutoMultiFindPrehistoric()
 				local inBoat = false
 				if humanoid and humanoid.SeatPart and (humanoid.SeatPart:IsA("Seat") or humanoid.SeatPart:IsA("VehicleSeat")) and humanoid.SeatPart:IsDescendantOf(currentBoat) then
 					inBoat = true
-				elseif root then
-					local ok, cf, size = pcall(function() return currentBoat:GetBoundingBox() end)
-					if ok and cf and size then
-						local pos = cf:PointToObjectSpace(root.Position)
-						local half = (size / 2) + Vector3.new(8, 12, 8)
-						inBoat = math.abs(pos.X) <= half.X and math.abs(pos.Y) <= half.Y and math.abs(pos.Z) <= half.Z
-					end
 				end
 				if not inBoat then
 					table.insert(missingPlayers, player.Name)
