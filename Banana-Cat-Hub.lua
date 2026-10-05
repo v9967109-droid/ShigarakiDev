@@ -20456,7 +20456,7 @@ function AutoMultiFindPrehistoric()
 		return
 	end
 	-- Depois que todos os jogadores selecionados entrarem no barco,
-	-- o dono do barco deve avançar fisicamente com W por aproximadamente 2 studs
+	-- o dono do barco deve avançar fisicamente com W por aproximadamente 100 studs
 	-- antes de iniciar a lógica normal do Auto Find Prehistoric Island.
 	if not getgenv().MultiPrehistoricTwoMeterDone then
 		local humanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
@@ -20481,7 +20481,7 @@ function AutoMultiFindPrehistoric()
 			and t.Character
 			and t.Character:FindFirstChildOfClass("Humanoid")
 			and t.Character:FindFirstChildOfClass("Humanoid").SeatPart == vehicleSeat
-			and (vehicleSeat.Position - startPosition).Magnitude < 2
+			and (vehicleSeat.Position - startPosition).Magnitude < 100
 			and tick() - startTime < 3 do
 			task.wait()
 		end
@@ -20627,6 +20627,33 @@ function AreSelectedPlayersOnPrehistoricIsland()
 		end
 	end
 	return true
+end
+
+function GoToPrehistoricIslandForMultiEvent()
+	if not Settings["Auto Multi Event Prehistoric Island"] then
+		return false
+	end
+	local island = workspace.Map:FindFirstChild("PrehistoricIsland")
+	if not island or not island.Parent then
+		return false
+	end
+	local character = t.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	local islandCFrame, islandSize = island:GetBoundingBox()
+	local margin = Vector3.new(30, 60, 30)
+	local checkSize = islandSize + margin
+	local localPos = islandCFrame:PointToObjectSpace(root.Position)
+	local onIsland = math.abs(localPos.X) <= checkSize.X / 2
+		and math.abs(localPos.Y) <= checkSize.Y / 2
+		and math.abs(localPos.Z) <= checkSize.Z / 2
+	if onIsland then
+		return true
+	end
+	toTarget(islandCFrame)
+	return false
 end
 
 function WaitForSelectedPlayersOnPrehistoricIsland()
@@ -21367,7 +21394,9 @@ FarmingMultiVulcanoSection.CreateToggle(
 			spawn(function()
 				while Settings["Auto Multi Event Prehistoric Island"] and wait(0.1) do
 					pcall(function()
-						if WaitForSelectedPlayersOnPrehistoricIsland() then
+						-- Primeiro leva somente o jogador local para a Prehistoric Island.
+						-- O Auto Event só é chamado depois que todos os selecionados chegarem.
+						if GoToPrehistoricIslandForMultiEvent() and WaitForSelectedPlayersOnPrehistoricIsland() then
 							AutoAttackVolcano()
 						end
 					end)
