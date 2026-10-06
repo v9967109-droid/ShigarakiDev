@@ -3695,7 +3695,8 @@ function EliteQuestOK(name)
 	pcall(function()
 		local G = game:GetService("Players").LocalPlayer.PlayerGui.Main.Quest
 		visible = G.Visible
-		txt = G.Container.QuestTitle.Title.Text
+		local title = G.Container and G.Container.QuestTitle and G.Container.QuestTitle.Title
+		txt = title and tostring(title.Text) or ""
 	end)
 	if visible then
 		if name and string.find(txt, name, 1, true) then
@@ -3707,33 +3708,38 @@ function EliteQuestOK(name)
 			end
 		end
 	end
-	-- Sem missão de elite: pede uma (com intervalo; antes abandonava e pedia a cada frame).
 	if tick() - (getgenv().__EliteReq or 0) > 5 then
-		getgenv().__EliteReq = tick()
-		local R = game:GetService("ReplicatedStorage").Remotes.CommF_
-		pcall(function()
-			if visible then
-				R:InvokeServer("AbandonQuest")
-			end
-			R:InvokeServer("EliteHunter")
-		end)
+		EliteRequest()
 	end
 	return false
 end
 local K = { "Deandre", "Urban", "Diablo" }
 function DetectEliteHunter()
-	local R, m, E = next, game:GetService("ReplicatedStorage"):GetChildren()
-	for l, l in R, m, E do
-		if l:IsA("Model") and (table.find(K, l.Name)) and (IsMobAlive(l)) then
-			return l
+	local enemies = game:GetService("Workspace"):FindFirstChild("Enemies")
+	if enemies then
+		-- Primeiro procura diretamente pelos nomes conhecidos para resposta imediata.
+		for _, name in ipairs(K) do
+			local mob = enemies:FindFirstChild(name)
+			if mob and mob:IsA("Model") and IsMobAlive(mob) then
+				return mob
+			end
+		end
+		-- Depois verifica os descendentes, caso o jogo coloque o Elite em um submodelo.
+		for _, mob in ipairs(enemies:GetDescendants()) do
+			if mob:IsA("Model") and table.find(K, mob.Name) and IsMobAlive(mob) then
+				return mob
+			end
 		end
 	end
-	E, m, R = next, game:GetService("Workspace").Enemies:GetChildren()
-	for l, l in E, m, R do
-		if l:IsA("Model") and (table.find(K, l.Name)) and (IsMobAlive(l)) then
-			return l
+	-- Fallback rápido para modelos temporários no ReplicatedStorage.
+	local replicated = game:GetService("ReplicatedStorage")
+	for _, name in ipairs(K) do
+		local mob = replicated:FindFirstChild(name)
+		if mob and mob:IsA("Model") and IsMobAlive(mob) then
+			return mob
 		end
 	end
+	return nil
 end
 local K = 0
 lastCheckTime = tick()
@@ -8245,27 +8251,57 @@ BossDarkbeardSection.CreateToggle(
 	end
 )
 function GetPathFruit()
-	-- Detect dropped Blox Fruits by their real item names/Handle.
+	-- Detecta a fruta caída mais próxima usando o nome real e o Handle.
 	local workspaceService = game:GetService("Workspace")
-	local function IsFruitObject(H)
-		if not H or not (H:IsA("Tool") or H:IsA("Model")) then return false end
-		local handle = H:FindFirstChild("Handle", true)
-		if not handle or not handle:IsA("BasePart") then return false end
-		local name = tostring(H.Name)
-		if TableDevilFruit and TableDevilFruit[name] ~= nil then return true end
-		if string.find(string.lower(name), "fruit", 1, true) then return true end
+	local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+	local best, bestDistance = nil, math.huge
+
+	local function IsFruitObject(obj)
+		if not obj or not (obj:IsA("Tool") or obj:IsA("Model")) then
+			return false
+		end
+		local handle = obj:FindFirstChild("Handle", true)
+		if not handle or not handle:IsA("BasePart") then
+			return false
+		end
+		local name = tostring(obj.Name)
+		if TableDevilFruit and TableDevilFruit[name] ~= nil then
+			return true
+		end
+		local lower = string.lower(name)
+		-- Alguns drops usam o nome "Fruit" e outros usam o padrão Fruit-Fruit.
+		if string.find(lower, "fruit", 1, true) then
+			return true
+		end
 		if string.find(name, "%-", 1, true) and #name >= 7 then
 			local left = string.split(name, "-")[1]
-			if left and #left >= 3 then return true end
+			if left and #left >= 3 and (TableDevilFruit and TableDevilFruit[name] ~= nil) then
+				return true
+			end
 		end
 		return false
 	end
-	for _, H in ipairs(workspaceService:GetChildren()) do
-		if IsFruitObject(H) then return H end
+
+	local function Consider(obj)
+		if not IsFruitObject(obj) then
+			return
+		end
+		local handle = obj:FindFirstChild("Handle", true)
+		if not handle then return end
+		local distance = root and (handle.Position - root.Position).Magnitude or 0
+		if distance < bestDistance then
+			bestDistance = distance
+			best = obj
+		end
 	end
-	for _, H in ipairs(workspaceService:GetDescendants()) do
-		if IsFruitObject(H) then return H end
+
+	for _, obj in ipairs(workspaceService:GetChildren()) do
+		Consider(obj)
 	end
+	for _, obj in ipairs(workspaceService:GetDescendants()) do
+		Consider(obj)
+	end
+	return best
 end
 function GetPirateRaid(f)
 	for V, V in ipairs((if f then game.ReplicatedStorage else game.workspace.Enemies):GetChildren()) do
@@ -9218,7 +9254,7 @@ task.spawn(function()
 					EliteRequest()
 					local questDeadline = tick() + 10
 					repeat
-						task.wait(0.25)
+						task.wait(0.10)
 						questName = GetEliteQuestName()
 					until questName or tick() >= questDeadline or not Settings["Auto Elite Hunter"]
 				end
@@ -9230,7 +9266,7 @@ task.spawn(function()
 				local target = FindElite(questName) or DetectEliteHunter()
 				local spawnDeadline = tick() + 60
 				while not target and tick() < spawnDeadline and Settings["Auto Elite Hunter"] do
-					task.wait(0.35)
+					task.wait(0.10)
 					target = FindElite(questName) or DetectEliteHunter()
 				end
 
@@ -9331,14 +9367,9 @@ task.spawn(function()
 				if y and handle and root then
 					StackFarm = false
 					StackFarmOther = false
-					if (handle.Position - root.Position).Magnitude <= 7 then
-						getgenv().noclip = false
-						game:GetService("VirtualInputManager"):SendKeyEvent(true, "Space", false, game)
-						task.wait()
-						game:GetService("VirtualInputManager"):SendKeyEvent(false, "Space", false, game)
-					else
-						toTarget(handle.CFrame, true)
-					end
+					getgenv().noclip = true
+					-- Vai diretamente para a fruta; não usa pulo artificial quando já está perto.
+					toTarget(handle.CFrame, true)
 					return
 				elseif Settings["Teleport To Fruit [ Hop Server ]"] then
 					HopServer()
@@ -11714,6 +11745,11 @@ function RandomFruit()
 		return false
 	end
 
+	local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	local SpinnerWindow = PlayerGui and PlayerGui:FindFirstChild("SpinnerWindow")
+	if SpinnerWindow and SpinnerWindow.Enabled then
+		return false -- janela de giro aberta: o loop de fora fecha
+	end
 	if (getgenv().__RandomFruitNext or 0) > tick() then
 		return false
 	end
@@ -11728,6 +11764,12 @@ function RandomFruit()
 		end)
 		return ok and v or nil
 	end
+	local function SpinnerOpen()
+		local g = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+		local w = g and g:FindFirstChild("SpinnerWindow")
+		return w and w.Enabled or false
+	end
+
 	local log = {}
 	local bought = false
 	local function Attempt(label, fn)
@@ -11741,7 +11783,7 @@ function RandomFruit()
 		repeat
 			task.wait(0.1)
 			local now = Beli()
-			if before and now and now < before then
+			if SpinnerOpen() or (before and now and now < before) then
 				bought = true
 				return
 			end
@@ -23062,10 +23104,28 @@ do
 	task.spawn(function()
 		while task.wait(0.5) and getgenv().__FruitGen == FruitGen do
 			pcall(function()
-				if Settings["Random Devil Fruit"] then
-					-- Giro direto pelo toggle: não abre, verifica ou manipula a interface SpinnerWindow.
-					RandomFruit()
-				end
+					if Settings["Random Devil Fruit"] then
+						local playerGui = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+						local spinnerWindow = playerGui and playerGui:FindFirstChild("SpinnerWindow")
+						if not spinnerWindow or not spinnerWindow.Enabled then
+							RandomFruit()
+						else
+							getgenv().__SpinOpenedAt = getgenv().__SpinOpenedAt or tick()
+							local above = spinnerWindow:FindFirstChild("AboveSpinner")
+							local navigation = above and above:FindFirstChild("Navigation")
+							local closeButton = navigation and navigation:FindFirstChild("CloseButton")
+							-- Se o botão de fechar não aparecer em 6s, fecha à força (antes ficava preso e parava de comprar).
+							if (closeButton and closeButton.Visible) or tick() - getgenv().__SpinOpenedAt > 6 then
+								pcall(function() Spinner:Close() end)
+								if tick() - getgenv().__SpinOpenedAt > 6 then
+									pcall(function() spinnerWindow.Enabled = false end)
+								end
+							end
+						end
+						if not (spinnerWindow and spinnerWindow.Enabled) then
+							getgenv().__SpinOpenedAt = nil
+						end
+					end
 			end)
 		end
 	end)
