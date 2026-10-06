@@ -20408,6 +20408,54 @@ function IsSelectedPlayersSeatedInMyBoat()
 	return true
 end
 
+function HandleMultiPrehistoricSelectedSeatExit()
+	-- Detecta somente a saída real do SEAT do barco. Não para o barco nem pausa o Multi Find.
+	-- Quando ocorre uma saída, o jogador local dá apenas um pulo por saída.
+	local selected = GetSelectedMultiPrehistoricPlayers()
+	local boat = checkboat()
+	if #selected == 0 or not boat or not boat.Parent then
+		getgenv().MultiPrehistoricSelectedSeatState = {}
+		return
+	end
+
+	getgenv().MultiPrehistoricSelectedSeatState = getgenv().MultiPrehistoricSelectedSeatState or {}
+	local state = getgenv().MultiPrehistoricSelectedSeatState
+
+	for _, player in ipairs(selected) do
+		local character = player and player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local seat = humanoid and humanoid.SeatPart
+		local seatedInBoat = seat ~= nil
+			and (seat:IsA("Seat") or seat:IsA("VehicleSeat"))
+			and seat:IsDescendantOf(boat)
+
+		local wasSeated = state[player.Name] == true
+		if wasSeated and not seatedInBoat then
+			local localCharacter = t.Character
+			local localHumanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
+			if localHumanoid and localHumanoid.Parent then
+				localHumanoid.Jump = true
+			end
+			state[player.Name] = false
+		elseif seatedInBoat then
+			state[player.Name] = true
+		else
+			state[player.Name] = false
+		end
+	end
+
+	-- Remove estados de jogadores que deixaram de estar selecionados.
+	local selectedNames = {}
+	for _, player in ipairs(selected) do
+		selectedNames[player.Name] = true
+	end
+	for name in pairs(state) do
+		if not selectedNames[name] then
+			state[name] = nil
+		end
+	end
+end
+
 local function SetMultiPrehistoricForward(vehicleSeat, enabled)
 	if not vehicleSeat or not vehicleSeat.Parent then return end
 	-- Usa exclusivamente o movimento nativo do Roblox pelo VehicleSeat.
@@ -20514,6 +20562,10 @@ function AutoMultiFindPrehistoric()
 		return
 	end
 
+	-- Verifica a saída do SEAT dos jogadores selecionados. Se alguém sair,
+	-- faz somente um pulo do jogador local; o barco continua funcionando.
+	HandleMultiPrehistoricSelectedSeatExit()
+
 	if not IsSelectedPlayersSeatedInMyBoat() then
 		local missingPlayers = {}
 		local selectedNow = GetSelectedMultiPrehistoricPlayers()
@@ -20572,8 +20624,9 @@ function AutoMultiFindPrehistoric()
 			getgenv().MultiPrehistoricMovingForward = false
 			return
 		end
+		HandleMultiPrehistoricSelectedSeatExit()
 		localHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
-		if not localHumanoid or localHumanoid.SeatPart ~= vehicleSeat or not IsSelectedPlayersSeatedInMyBoat() then
+		if not localHumanoid or localHumanoid.SeatPart ~= vehicleSeat then
 			SetMultiPrehistoricForward(vehicleSeat, false)
 			getgenv().MultiPrehistoricMovingForward = false
 			return
@@ -20583,6 +20636,8 @@ function AutoMultiFindPrehistoric()
 		SetMultiPrehistoricForward(vehicleSeat, true)
 
 		while Settings["Auto Multi Find Prehistoric Island"] and vehicleSeat.Parent do
+			-- Verifica a saída do SEAT continuamente. Se alguém sair, faz somente um pulo único.
+			HandleMultiPrehistoricSelectedSeatExit()
 			-- Reaplica o movimento nativo continuamente para manter o avanço até os 650 studs.
 			SetMultiPrehistoricForward(vehicleSeat, true)
 			if workspace.Map:FindFirstChild("PrehistoricIsland") then
@@ -20590,9 +20645,6 @@ function AutoMultiFindPrehistoric()
 			end
 			local currentHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
 			if not currentHumanoid or currentHumanoid.SeatPart ~= vehicleSeat then
-				break
-			end
-			if not IsSelectedPlayersSeatedInMyBoat() then
 				break
 			end
 			if (vehicleSeat.Position - startPosition).Magnitude >= 650 then
@@ -20611,7 +20663,7 @@ function AutoMultiFindPrehistoric()
 			getgenv().MultiPrehistoricTwoMeterDone = false
 			return
 		end
-		if not currentHumanoid or currentHumanoid.SeatPart ~= vehicleSeat or not IsSelectedPlayersSeatedInMyBoat() then
+		if not currentHumanoid or currentHumanoid.SeatPart ~= vehicleSeat then
 			getgenv().MultiPrehistoricTwoMeterDone = false
 			return
 		end
@@ -20623,10 +20675,6 @@ function AutoMultiFindPrehistoric()
 	-- Nunca chama AutoFind enquanto o dono do barco estiver fora do VehicleSeat.
 	local finalHumanoid = t.Character and t.Character:FindFirstChildOfClass("Humanoid")
 	if not finalHumanoid or finalHumanoid.SeatPart ~= vehicleSeat then
-		getgenv().MultiPrehistoricTwoMeterDone = false
-		return
-	end
-	if not IsSelectedPlayersSeatedInMyBoat() then
 		getgenv().MultiPrehistoricTwoMeterDone = false
 		return
 	end
@@ -21550,6 +21598,7 @@ FarmingMultiVulcanoSection.CreateToggle(
 			getgenv().MultiPrehistoricWaitingNoti = false
 			getgenv().MultiPrehistoricWaitingNotiTime = nil
 			getgenv().MultiPrehistoricSpawnNoti = false
+			getgenv().MultiPrehistoricSelectedSeatState = {}
 			spawn(function()
 				while Settings["Auto Multi Find Prehistoric Island"] and wait(0.1) do
 					pcall(function()
@@ -21563,6 +21612,7 @@ FarmingMultiVulcanoSection.CreateToggle(
 			getgenv().MultiPrehistoricWaitingNoti = false
 			getgenv().MultiPrehistoricWaitingNotiTime = nil
 			getgenv().MultiPrehistoricMovingForward = false
+			getgenv().MultiPrehistoricSelectedSeatState = {}
 			pcall(function()
 				game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
 			end)
