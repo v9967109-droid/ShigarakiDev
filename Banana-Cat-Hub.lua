@@ -11714,11 +11714,6 @@ function RandomFruit()
 		return false
 	end
 
-	local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	local SpinnerWindow = PlayerGui and PlayerGui:FindFirstChild("SpinnerWindow")
-	if SpinnerWindow and SpinnerWindow.Enabled then
-		return false -- janela de giro aberta: o loop de fora fecha
-	end
 	if (getgenv().__RandomFruitNext or 0) > tick() then
 		return false
 	end
@@ -11733,12 +11728,6 @@ function RandomFruit()
 		end)
 		return ok and v or nil
 	end
-	local function SpinnerOpen()
-		local g = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-		local w = g and g:FindFirstChild("SpinnerWindow")
-		return w and w.Enabled or false
-	end
-
 	local log = {}
 	local bought = false
 	local function Attempt(label, fn)
@@ -11752,7 +11741,7 @@ function RandomFruit()
 		repeat
 			task.wait(0.1)
 			local now = Beli()
-			if SpinnerOpen() or (before and now and now < before) then
+			if before and now and now < before then
 				bought = true
 				return
 			end
@@ -23073,28 +23062,10 @@ do
 	task.spawn(function()
 		while task.wait(0.5) and getgenv().__FruitGen == FruitGen do
 			pcall(function()
-					if Settings["Random Devil Fruit"] then
-						local playerGui = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
-						local spinnerWindow = playerGui and playerGui:FindFirstChild("SpinnerWindow")
-						if not spinnerWindow or not spinnerWindow.Enabled then
-							RandomFruit()
-						else
-							getgenv().__SpinOpenedAt = getgenv().__SpinOpenedAt or tick()
-							local above = spinnerWindow:FindFirstChild("AboveSpinner")
-							local navigation = above and above:FindFirstChild("Navigation")
-							local closeButton = navigation and navigation:FindFirstChild("CloseButton")
-							-- Se o botão de fechar não aparecer em 6s, fecha à força (antes ficava preso e parava de comprar).
-							if (closeButton and closeButton.Visible) or tick() - getgenv().__SpinOpenedAt > 6 then
-								pcall(function() Spinner:Close() end)
-								if tick() - getgenv().__SpinOpenedAt > 6 then
-									pcall(function() spinnerWindow.Enabled = false end)
-								end
-							end
-						end
-						if not (spinnerWindow and spinnerWindow.Enabled) then
-							getgenv().__SpinOpenedAt = nil
-						end
-					end
+				if Settings["Random Devil Fruit"] then
+					-- Giro direto pelo toggle: não abre, verifica ou manipula a interface SpinnerWindow.
+					RandomFruit()
+				end
 			end)
 		end
 	end)
