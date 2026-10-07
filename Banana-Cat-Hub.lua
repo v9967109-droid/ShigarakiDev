@@ -16382,12 +16382,16 @@ function AutoBuyRaceDraco()
 	local npcRoot = npc and npc:FindFirstChild("HumanoidRootPart")
 	if not npcRoot then return false end
 	if (root.Position - npcRoot.Position).Magnitude > 8 then
-		pcall(function()
-			A.CreateNoti({Title="Banana Cat Hub", Desc="Going to Dragon Wizard to buy Draco...", ShowTime=3})
-		end)
+		if not getgenv().__BC_DracoGoingNoti then
+			getgenv().__BC_DracoGoingNoti = true
+			pcall(function()
+				A.CreateNoti({Title="Banana Cat Hub", Desc="Going to Dragon Wizard to buy Draco...", ShowTime=3})
+			end)
+		end
 		toTarget(npcRoot.CFrame * CFrame.new(0,4,4))
 		return false
 	end
+	getgenv().__BC_DracoGoingNoti = nil
 	local remote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/InteractDragonQuest")
 	if not remote then return false end
 	local ok = pcall(function()
@@ -18182,16 +18186,20 @@ end)
 CraftItemsMain = Main.CreatePage({ Page_Name = "Craft Items", Page_Title = "Craft Items Tab" })
 
 local CraftItemsState = {}
+local CraftNotifyState = {}
+
 local function CraftItemsNotify(desc)
 	pcall(function()
-		A.CreateNoti({Title="Banana Cat Hub", Desc=desc, ShowTime=5})
+		A.CreateNoti({Title = "Banana Cat Hub", Desc = desc, ShowTime = 5})
 	end)
 end
 
+-- Somente crafts de itens/veículos não relacionados a armas.
 local CraftRecipes = {
 	["Leviathan Crown"] = {
 		Setting = "Auto Craft Leviathan Crown",
 		RemoteName = "LeviathanCrown",
+		NpcNames = {"Beast Hunter"},
 		Materials = {
 			{"Dark Fragment", 1},
 			{"Leviathan Scale", 10},
@@ -18201,6 +18209,7 @@ local CraftRecipes = {
 	["Leviathan Shield"] = {
 		Setting = "Auto Craft Leviathan Shield",
 		RemoteName = "LeviathanShield",
+		NpcNames = {"Beast Hunter"},
 		Materials = {
 			{"Mirror Fractal", 1},
 			{"Leviathan Scale", 30},
@@ -18211,6 +18220,7 @@ local CraftRecipes = {
 	["Beast Hunter"] = {
 		Setting = "Auto Craft Beast Hunter",
 		RemoteName = "BeastHunter",
+		NpcNames = {"Beast Hunter"},
 		Materials = {
 			{"Leviathan Scale", 20},
 			{"Electric Wing", 6},
@@ -18222,6 +18232,7 @@ local CraftRecipes = {
 	["Shark Tooth Necklace"] = {
 		Setting = "Auto Craft Shark Tooth Necklace",
 		RemoteName = "ToothNecklace",
+		NpcNames = {"Shark Hunter"},
 		Materials = {
 			{"Mutant Tooth", 1},
 			{"Shark Tooth", 5},
@@ -18230,6 +18241,7 @@ local CraftRecipes = {
 	["Terror Jaw"] = {
 		Setting = "Auto Craft Terror Jaw",
 		RemoteName = "TerrorJaw",
+		NpcNames = {"Shark Hunter"},
 		Materials = {
 			{"Mutant Tooth", 2},
 			{"Shark Tooth", 5},
@@ -18239,32 +18251,67 @@ local CraftRecipes = {
 	},
 }
 
+local function FindCraftNpc(names)
+	local npc
+	for _, name in ipairs(names or {}) do
+		pcall(function()
+			local folder = workspace:FindFirstChild("NPCs")
+			if folder then npc = folder:FindFirstChild(name) end
+		end)
+		if npc then break end
+		pcall(function()
+			local folder = game:GetService("ReplicatedStorage"):FindFirstChild("NPCs")
+			if folder then npc = folder:FindFirstChild(name) end
+		end)
+		if npc then break end
+		pcall(function()
+			local list = NPCManager.getNPCsByName(name)
+			local entry = list and list[1]
+			npc = entry and entry._modelState and entry._modelState._instance
+		end)
+		if npc then break end
+	end
+	return npc
+end
+
+local function GetCraftNpcRoot(npc)
+	if not npc then return nil end
+	return npc:FindFirstChild("HumanoidRootPart")
+		or npc.PrimaryPart
+		or npc:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function CountMaterial(name, needed)
+	local ok, result = pcall(function()
+		return CheckCountItem(name, needed)
+	end)
+	return ok and result == true
+end
+
 local function GetMissingCraftMaterials(recipe)
 	local missing = {}
 	for _, material in ipairs(recipe.Materials) do
 		local name, needed = material[1], material[2]
-		local have = 0
-		pcall(function() have = CheckCountItem(name, needed) and needed or 0 end)
-		if have < needed then
+		if not CountMaterial(name, needed) then
 			local current = 0
-			pcall(function()
-				if CheckCountItem(name, 1) then
-					for n = 1, needed do
-						if CheckCountItem(name, n) then current = n else break end
-					end
+			for n = 1, needed do
+				if CountMaterial(name, n) then
+					current = n
+				else
+					break
 				end
-			end)
+			end
 			table.insert(missing, name .. " " .. tostring(current) .. "/" .. tostring(needed))
 		end
 	end
 	return missing
 end
 
-local function InvokeCraftRecipe(itemName, remoteName)
+local function CraftItemDirect(itemName, recipe)
 	local remote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/Craft")
 	if not remote then return false end
 	local ok = pcall(function()
-		remote:InvokeServer(unpack({[1]="Craft", [2]=remoteName, [3]=1, [4]={}}))
+		remote:InvokeServer(unpack({[1] = "Craft", [2] = recipe.RemoteName, [3] = 1, [4] = {}}))
 	end)
 	return ok
 end
@@ -18273,49 +18320,75 @@ local function RunCraftItem(itemName)
 	local recipe = CraftRecipes[itemName]
 	if not recipe then return end
 	if CheckItemInventory(itemName) then
-		if not CraftItemsState[itemName .. "_owned"] then
-			CraftItemsState[itemName .. "_owned"] = true
+		if not CraftItemsState[itemName .. ":owned"] then
+			CraftItemsState[itemName .. ":owned"] = true
 			CraftItemsNotify(itemName .. " already obtained.")
 		end
 		return
 	end
-	CraftItemsState[itemName .. "_owned"] = nil
+	CraftItemsState[itemName .. ":owned"] = nil
 
 	local missing = GetMissingCraftMaterials(recipe)
 	if #missing > 0 then
-		if not CraftItemsState[itemName .. "_search"] then
-			CraftItemsState[itemName .. "_search"] = true
-			CraftItemsNotify("" .. itemName .. " not found. Going to find materials and craft it...")
+		if not CraftNotifyState[itemName .. ":materials"] then
+			CraftNotifyState[itemName .. ":materials"] = true
+			CraftItemsNotify(itemName .. " not found. Going to find the required materials: " .. table.concat(missing, ", ") .. ".")
 		end
-		-- Material farming is intentionally left to the existing Sea Event/material systems.
 		return
 	end
-	CraftItemsState[itemName .. "_search"] = nil
+	CraftNotifyState[itemName .. ":materials"] = nil
 
-	if not CraftItemsState[itemName .. "_craft"] then
-		CraftItemsState[itemName .. "_craft"] = true
+	local npc = FindCraftNpc(recipe.NpcNames)
+	local npcRoot = GetCraftNpcRoot(npc)
+	if not npcRoot then
+		if not CraftNotifyState[itemName .. ":npc"] then
+			CraftNotifyState[itemName .. ":npc"] = true
+			CraftItemsNotify("Going to find the NPC to craft " .. itemName .. "...")
+		end
+		return
+	end
+	CraftNotifyState[itemName .. ":npc"] = nil
+
+	if t:DistanceFromCharacter(npcRoot.Position) > 10 then
+		if not CraftNotifyState[itemName .. ":go"] then
+			CraftNotifyState[itemName .. ":go"] = true
+			CraftItemsNotify("Going to " .. npcRoot.Parent.Name .. " to craft " .. itemName .. "...")
+		end
+		toTarget(npcRoot.CFrame * CFrame.new(0, 3, 4))
+		return
+	end
+	CraftNotifyState[itemName .. ":go"] = nil
+
+	if not CraftNotifyState[itemName .. ":crafting"] then
+		CraftNotifyState[itemName .. ":crafting"] = true
 		CraftItemsNotify("Crafting " .. itemName .. "...")
 	end
-	if InvokeCraftRecipe(itemName, recipe.RemoteName) then
+	if CraftItemDirect(itemName, recipe) then
 		task.wait(0.8)
 		if CheckItemInventory(itemName) then
 			CraftItemsNotify(itemName .. " crafted successfully.")
-			CraftItemsState[itemName .. "_craft"] = nil
+			CraftNotifyState[itemName .. ":crafting"] = nil
 		end
 	end
 end
 
 local function AddCraftToggle(section, title, itemName)
 	local recipe = CraftRecipes[itemName]
-	section.CreateToggle({Title=title, Desc=nil, Default=Settings[recipe.Setting] or false}, function(g)
+	section.CreateToggle({Title = title, Desc = nil, Default = Settings[recipe.Setting] or false}, function(g)
 		SaveSettings(recipe.Setting, g)
-		if g then
-			spawn(function()
-				while Settings[recipe.Setting] and task.wait(0.5) do
-					pcall(function() RunCraftItem(itemName) end)
-				end
-			end)
+		if not g then
+			CraftItemsState[itemName .. ":owned"] = nil
+			CraftNotifyState[itemName .. ":materials"] = nil
+			CraftNotifyState[itemName .. ":npc"] = nil
+			CraftNotifyState[itemName .. ":go"] = nil
+			CraftNotifyState[itemName .. ":crafting"] = nil
+			return
 		end
+		spawn(function()
+			while Settings[recipe.Setting] and task.wait(0.5) do
+				pcall(function() RunCraftItem(itemName) end)
+			end
+		end)
 	end)
 end
 
