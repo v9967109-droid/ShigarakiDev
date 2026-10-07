@@ -3695,7 +3695,8 @@ function EliteQuestOK(name)
 	pcall(function()
 		local G = game:GetService("Players").LocalPlayer.PlayerGui.Main.Quest
 		visible = G.Visible
-		txt = G.Container.QuestTitle.Title.Text
+		local title = G.Container and G.Container.QuestTitle and G.Container.QuestTitle.Title
+		txt = title and tostring(title.Text) or ""
 	end)
 	if visible then
 		if name and string.find(txt, name, 1, true) then
@@ -3707,33 +3708,38 @@ function EliteQuestOK(name)
 			end
 		end
 	end
-	-- Sem missão de elite: pede uma (com intervalo; antes abandonava e pedia a cada frame).
 	if tick() - (getgenv().__EliteReq or 0) > 5 then
-		getgenv().__EliteReq = tick()
-		local R = game:GetService("ReplicatedStorage").Remotes.CommF_
-		pcall(function()
-			if visible then
-				R:InvokeServer("AbandonQuest")
-			end
-			R:InvokeServer("EliteHunter")
-		end)
+		EliteRequest()
 	end
 	return false
 end
 local K = { "Deandre", "Urban", "Diablo" }
 function DetectEliteHunter()
-	local R, m, E = next, game:GetService("ReplicatedStorage"):GetChildren()
-	for l, l in R, m, E do
-		if l:IsA("Model") and (table.find(K, l.Name)) and (IsMobAlive(l)) then
-			return l
+	local enemies = game:GetService("Workspace"):FindFirstChild("Enemies")
+	if enemies then
+		-- Primeiro procura diretamente pelos nomes conhecidos para resposta imediata.
+		for _, name in ipairs(K) do
+			local mob = enemies:FindFirstChild(name)
+			if mob and mob:IsA("Model") and IsMobAlive(mob) then
+				return mob
+			end
+		end
+		-- Depois verifica os descendentes, caso o jogo coloque o Elite em um submodelo.
+		for _, mob in ipairs(enemies:GetDescendants()) do
+			if mob:IsA("Model") and table.find(K, mob.Name) and IsMobAlive(mob) then
+				return mob
+			end
 		end
 	end
-	E, m, R = next, game:GetService("Workspace").Enemies:GetChildren()
-	for l, l in E, m, R do
-		if l:IsA("Model") and (table.find(K, l.Name)) and (IsMobAlive(l)) then
-			return l
+	-- Fallback rápido para modelos temporários no ReplicatedStorage.
+	local replicated = game:GetService("ReplicatedStorage")
+	for _, name in ipairs(K) do
+		local mob = replicated:FindFirstChild(name)
+		if mob and mob:IsA("Model") and IsMobAlive(mob) then
+			return mob
 		end
 	end
+	return nil
 end
 local K = 0
 lastCheckTime = tick()
@@ -8245,27 +8251,57 @@ BossDarkbeardSection.CreateToggle(
 	end
 )
 function GetPathFruit()
-	-- Detect dropped Blox Fruits by their real item names/Handle.
+	-- Detecta a fruta caída mais próxima usando o nome real e o Handle.
 	local workspaceService = game:GetService("Workspace")
-	local function IsFruitObject(H)
-		if not H or not (H:IsA("Tool") or H:IsA("Model")) then return false end
-		local handle = H:FindFirstChild("Handle", true)
-		if not handle or not handle:IsA("BasePart") then return false end
-		local name = tostring(H.Name)
-		if TableDevilFruit and TableDevilFruit[name] ~= nil then return true end
-		if string.find(string.lower(name), "fruit", 1, true) then return true end
+	local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+	local best, bestDistance = nil, math.huge
+
+	local function IsFruitObject(obj)
+		if not obj or not (obj:IsA("Tool") or obj:IsA("Model")) then
+			return false
+		end
+		local handle = obj:FindFirstChild("Handle", true)
+		if not handle or not handle:IsA("BasePart") then
+			return false
+		end
+		local name = tostring(obj.Name)
+		if TableDevilFruit and TableDevilFruit[name] ~= nil then
+			return true
+		end
+		local lower = string.lower(name)
+		-- Alguns drops usam o nome "Fruit" e outros usam o padrão Fruit-Fruit.
+		if string.find(lower, "fruit", 1, true) then
+			return true
+		end
 		if string.find(name, "%-", 1, true) and #name >= 7 then
 			local left = string.split(name, "-")[1]
-			if left and #left >= 3 then return true end
+			if left and #left >= 3 and (TableDevilFruit and TableDevilFruit[name] ~= nil) then
+				return true
+			end
 		end
 		return false
 	end
-	for _, H in ipairs(workspaceService:GetChildren()) do
-		if IsFruitObject(H) then return H end
+
+	local function Consider(obj)
+		if not IsFruitObject(obj) then
+			return
+		end
+		local handle = obj:FindFirstChild("Handle", true)
+		if not handle then return end
+		local distance = root and (handle.Position - root.Position).Magnitude or 0
+		if distance < bestDistance then
+			bestDistance = distance
+			best = obj
+		end
 	end
-	for _, H in ipairs(workspaceService:GetDescendants()) do
-		if IsFruitObject(H) then return H end
+
+	for _, obj in ipairs(workspaceService:GetChildren()) do
+		Consider(obj)
 	end
+	for _, obj in ipairs(workspaceService:GetDescendants()) do
+		Consider(obj)
+	end
+	return best
 end
 function GetPirateRaid(f)
 	for V, V in ipairs((if f then game.ReplicatedStorage else game.workspace.Enemies):GetChildren()) do
@@ -9218,7 +9254,7 @@ task.spawn(function()
 					EliteRequest()
 					local questDeadline = tick() + 10
 					repeat
-						task.wait(0.25)
+						task.wait(0.10)
 						questName = GetEliteQuestName()
 					until questName or tick() >= questDeadline or not Settings["Auto Elite Hunter"]
 				end
@@ -9230,7 +9266,7 @@ task.spawn(function()
 				local target = FindElite(questName) or DetectEliteHunter()
 				local spawnDeadline = tick() + 60
 				while not target and tick() < spawnDeadline and Settings["Auto Elite Hunter"] do
-					task.wait(0.35)
+					task.wait(0.10)
 					target = FindElite(questName) or DetectEliteHunter()
 				end
 
@@ -9331,14 +9367,9 @@ task.spawn(function()
 				if y and handle and root then
 					StackFarm = false
 					StackFarmOther = false
-					if (handle.Position - root.Position).Magnitude <= 7 then
-						getgenv().noclip = false
-						game:GetService("VirtualInputManager"):SendKeyEvent(true, "Space", false, game)
-						task.wait()
-						game:GetService("VirtualInputManager"):SendKeyEvent(false, "Space", false, game)
-					else
-						toTarget(handle.CFrame, true)
-					end
+					getgenv().noclip = true
+					-- Vai diretamente para a fruta; não usa pulo artificial quando já está perto.
+					toTarget(handle.CFrame, true)
 					return
 				elseif Settings["Teleport To Fruit [ Hop Server ]"] then
 					HopServer()
@@ -16323,60 +16354,6 @@ RaceDracoSection.CreateToggle(
 		SaveSettings("Fully Trial Draco", g)
 	end
 )
-function AutoBuyRaceDraco()
-	local race = game:GetService("Players").LocalPlayer:FindFirstChild("Data") and game:GetService("Players").LocalPlayer.Data:FindFirstChild("Race")
-	if race and race.Value == "Draco" then
-		if not getgenv().NotifiedRaceDracoAlready then
-			A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Draco is already equipped.", ShowTime = 5 })
-			getgenv().NotifiedRaceDracoAlready = true
-		end
-		return
-	end
-	getgenv().NotifiedRaceDracoAlready = nil
-
-	local npc
-	pcall(function()
-		npc = workspace.NPCs:FindFirstChild("Dragon Wizard")
-			or (game:GetService("ReplicatedStorage").NPCs and game:GetService("ReplicatedStorage").NPCs:FindFirstChild("Dragon Wizard"))
-				or (NPCManager.getNPCsByName("Dragon Wizard")[1] and NPCManager.getNPCsByName("Dragon Wizard")[1]._modelState._instance)
-	end)
-	if not npc then return end
-	local root = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
-	if not root then return end
-	if t:DistanceFromCharacter(root.Position) > 8 then
-		if not getgenv().NotifiedGoingDragonWizard then
-			A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Going to Dragon Wizard to get Draco...", ShowTime = 5 })
-			getgenv().NotifiedGoingDragonWizard = true
-		end
-		toTarget(root.CFrame * CFrame.new(0, 4, 4))
-		return
-	end
-
-	getgenv().NotifiedGoingDragonWizard = nil
-	pcall(function()
-		local rf = game:GetService("ReplicatedStorage").Modules.Net["RF/InteractDragonQuest"]
-		local state = rf:InvokeServer({ NPC = "Dragon Wizard", Command = "Speak" })
-		if state and (state.AvailableVQuest == "V1" or state.AvailableVQuest == "V1TurnInReady" or state.AvailableVQuest == "CanBuy" or state.AvailableVQuest == "Ready") then
-			rf:InvokeServer({ NPC = "Dragon Wizard", Command = "Ascension", Action = "Begin" })
-		end
-	end)
-end
-
-RaceDracoSection.CreateToggle(
-	{ Title = "Auto Buy Race Draco", Desc = "Detect Dragon Wizard and go to him to obtain/equip Draco.", Default = Settings["Auto Buy Race Draco"] or false },
-	function(g)
-		SaveSettings("Auto Buy Race Draco", g)
-		if g then
-			task.spawn(function()
-				while Settings["Auto Buy Race Draco"] do
-					task.wait(0.15)
-					pcall(AutoBuyRaceDraco)
-				end
-			end)
-		end
-	end
-)
-
 RaceDracoSection.CreateToggle(
 	{ Title = "Auto Buy Gear Draco", Desc = nil, Default = Settings["Auto Buy Gear Draco"] or false },
 	function(g)
@@ -18141,70 +18118,6 @@ spawn(function()
 end)
 GetItemsMain = Main.CreatePage({ Page_Name = "Get and Upgrade Items", Page_Title = "Get and Upgrade Items Tab" })
 GetItemsSection = GetItemsMain.CreateSection("Get Items")
-
--- Craft Items tab
-CraftItemsMain = Main.CreatePage({ Page_Name = "Craft Items", Page_Title = "Craft Items" })
-CraftItemsSection = CraftItemsMain.CreateSection("Craft Items")
-
-local function CraftItemDirect(resultName, craftName, requirements)
-	if CheckItemInventory(resultName) then
-		return true
-	end
-	for itemName, amount in pairs(requirements) do
-		if not CheckCountItem(itemName, amount) then
-			return false
-		end
-	end
-	local remote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/Craft")
-	if not remote then
-		return false
-	end
-	local ok = pcall(function()
-		remote:InvokeServer("Craft", craftName, 1, {})
-	end)
-	if ok then
-		A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Crafted " .. resultName, ShowTime = 4 })
-	end
-	return ok
-end
-
-local CraftItemSettings = {
-	["Auto Craft Leviathan Crown"] = { Result = "Leviathan Crown", Craft = "LeviathanCrown", Requirements = { ["Dark Fragment"] = 1, ["Leviathan Scale"] = 10, ["Electric Wing"] = 5 } },
-	["Auto Craft Leviathan Shield"] = { Result = "Leviathan Shield", Craft = "LeviathanShield", Requirements = { ["Mirror Fractal"] = 1, ["Leviathan Scale"] = 30, ["Electric Wing"] = 10, ["Fool's Gold"] = 20 } },
-	["Auto Craft Beast Hunter"] = { Result = "Beast Hunter", Craft = "Beast Hunter", Requirements = { ["Leviathan Scale"] = 20, ["Electric Wing"] = 6, ["Mutant Tooth"] = 2, ["Fool's Gold"] = 30, ["Shark Tooth"] = 6 } },
-	["Auto Craft Shark Tooth Necklace"] = { Result = "Shark Tooth Necklace", Craft = "ToothNecklace", Requirements = { ["Mutant Tooth"] = 1, ["Shark Tooth"] = 5 } },
-	["Auto Craft Terror Jaw"] = { Result = "Terror Jaw", Craft = "TerrorJaw", Requirements = { ["Mutant Tooth"] = 2, ["Shark Tooth"] = 5, ["Terror Eyes"] = 1, ["Fool's Gold"] = 10 } },
-	["Auto Craft Monster Magnet"] = { Result = "Monster Magnet", Craft = "Monster Magnet", Requirements = { ["Terror Eyes"] = 2, ["Electric Wing"] = 8, ["Fool's Gold"] = 20, ["Shark Tooth"] = 10 } },
-}
-
-local function RunCraftToggle(settingName)
-	local cfg = CraftItemSettings[settingName]
-	if not cfg then return end
-	task.spawn(function()
-		while Settings[settingName] do
-			task.wait(0.2)
-			pcall(function()
-				if CheckItemInventory(cfg.Result) then
-					Settings[settingName] = false
-					return
-				end
-				CraftItemDirect(cfg.Result, cfg.Craft, cfg.Requirements)
-			end)
-		end
-	end)
-end
-
-for settingName, cfg in pairs(CraftItemSettings) do
-	CraftItemsSection.CreateToggle(
-		{ Title = settingName:gsub("^Auto Craft ", "Auto Craft "), Desc = nil, Default = Settings[settingName] or false },
-		function(value)
-			SaveSettings(settingName, value)
-			if value then
-				RunCraftToggle(settingName)
-			end
-		end
-	)
-end
 GetItemsSection.CreateToggle(
 	{ Title = "Auto Trade Bone", Desc = nil, Default = Settings["Auto Trade Bone"] or false },
 	function(g)
@@ -25782,9 +25695,9 @@ function Auto_Event_Prehistoric_Island_0339()if game:GetService("Workspace").Map
 
 function Auto_Fire_Leviathan_Heart_0345()if workspace.Map:FindFirstChild("FrozenHeart")then if not workspace.Map.FrozenHeart.Inside:GetAttribute("Harpooned")then local Z=checkboatBeastHunter();NoclipBoat(Z);local F,c,l,H=game:service("TweenService"),CFrame.new(workspace.Map:FindFirstChild("FrozenHeart").Cube.Position.X,Z.WorldPivot.Y,workspace.Map:FindFirstChild("FrozenHeart").Cube.Position.Z)*CFrame.new(0,0,300),CFrame.Angles,math.rad;local H=c*l(0,6.283185307179586,0);if(H.Position-Z.VehicleSeat.Position).Magnitude>5 then if b[1].Character.Humanoid.SeatPart and b[1].Character.Humanoid.SeatPart.Name=="VehicleSeat"then l=TweenInfo.new((H.Position-Z.VehicleSeat.Position).Magnitude/150,Enum.EasingStyle.Quad);c=F:Create(Z.VehicleSeat,l,{CFrame=H});c:Play();c.Completed:wait();wait(1);b[2][7][b[2][6]](Z,workspace.Map:FindFirstChild("FrozenHeart").Inside.Position);else toTarget(Z.VehicleSeat.CFrame);end;elseif b[1].Character.Humanoid.SeatPart and b[1].Character.Humanoid.SeatPart.Parent.Name=="Harpoon"then local F={[1]="FireHarpoon",[2]=0.7853981633974483,[3]=4.4342573293783646E-4,[4]=Z.Harpoon,[5]=workspace:GetServerTimeNow()};game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer(unpack(F));else toTarget(Z.Harpoon.Seat.CFrame);end;else b[3].CreateNoti({Title="Banana Cat Hub",Desc="Successfully Fire Shoot Heart Leviathan",ShowTime=5});wait(5);end;end;end
 
-function Start_Farm_0347(...)local __args = {...};local b = __args[1];return function()if Settings["Start Farm"]or Settings["Auto Present Event"]or Settings["Auto Celestial Soldier"]or Settings["Auto Rip Commander"]or Settings["Auto Event Halloween"]or Settings["Auto Attack Dungeon"]or Settings["Auto Fishing"]or Settings["Teleport To Fruit"]or Settings["Auto Factory"]or Settings["Auto Pirate Raid"]or Settings["Auto Elite Hunter"]or Settings["Auto Touch Pad Haki"]or Settings["Auto Summon Rip Indra"]or Settings["Attack Rip Indra"]or Settings["Attack Soul Reaper"]or Settings["Attack Dough King"]or Settings["Attack Darkbeard"]or Settings["Auto Raid"]or Settings["Auto Sea Event"]or Settings["Auto Shipwright"]or Settings["Teleport Acient Clock"]or Settings["Auto Upgrade Race V2-V3"]or Settings["Auto Trial"]or Settings["Auto Get Ghoul"]or Settings["Auto Get Cyborg"]or Settings["Auto Pull Lever"]or b[1]["Teleport Mirage"]or b[1]["Teleport To Island"]or b[1]["Teleport To Npc"]or b[1]["Teleport Prehistoric Island"]or b[1]["Sanguine Art"]or b[1]["God Human"]or b[1]["Dragon Talon"]or b[1]["Electric Claw"]or b[1]["Sharkman Karate"]or b[1]["Death Step"]or b[1].SuperHuman or b[1].DragonClaw or b[1].Electro or b[1]["Fishman Karate"]or b[1]["Black Leg"]or Settings["Teleport To Kitsune Island"]or Settings["Auto Spawn Kitsune Island"]or Settings["Auto Collect Soul Ember"]or Settings["Auto Summon Soul Ember"]or Settings["Auto Attack Leviathan"]or Settings["Auto Soul Guitar"]or Settings["Auto CDK"]or Settings["Auto Yama"]or Settings["Auto Tushita"]or Settings["Auto Upgrade Sword Inventory"]or Settings["Teleport Player"]or Settings["Auto Chest"]or Settings["Farm Observation"]or Settings["Auto Upgrade Gun Inventory"]or Settings["Kill Boss"]or Settings["Kill Mob"]or Settings["Auto UP Observation V2"]or Settings["Auto New World"]or Settings["Auto Third World"]or Settings["Tween Safe if have Items"]or Settings["Teleport Frozen Dimension"]or Settings["Auto Yoru Mini"]or Settings["Auto Quest Dojo Trainer"]or Settings["Auto Quest Dragon Hunter"]or Settings["Auto Crafting Volcanic Magnet"]or Settings["Auto Find Prehistoric Island"]or Settings["Auto Find Mirage"]or Settings["Auto Event Prehistoric Island"]or Settings["Auto Collect Bone"]or Settings["Auto Collect Berry"]or Settings["Auto Upgrade Race V2-V3 Draco"]or Settings["Auto Trial Draco"]or Settings["Auto Get Rainbow Haki"]or Settings["Follow Player Select"]or Settings["Auto Tween To Prehistoric Island"]or Settings["Auto Kill Golem"]or Settings["Auto Fix Volcano"]or Settings["Multi Find Leviathan"]or Settings["Fully Event Prehistoric Island"]or Settings["Auto Multi Raid"]or Settings["Auto Fire Shoot Heart Leviathan"]or Settings["Auto Buy Chip and Attack Law"]or Settings["Fully Trial Draco"]or Settings["Auto Finish Train Quest"]or Settings["Auto Destroy IDK"]or Settings["Auto Finish Train Draco Quest"]or Settings["Auto TTK"]or Settings["Auto Attack All Mob and Boss"]or Settings["Auto Collect Egg"]or Settings["Collect Chest When Server Spawn God's Chalice or Fist of Darkness"]or Settings["Auto Craft Leviathan Crown"]or Settings["Auto Craft Leviathan Shield"]or Settings["Auto Craft Beast Hunter"]or Settings["Auto Craft Shark Tooth Necklace"]or Settings["Auto Craft Terror Jaw"]or Settings["Auto Craft Monster Magnet"]or Settings["Auto Buy Race Draco"]or Settings["Auto Event Magnet"]then return true;end;end;end
+function Start_Farm_0347(...)local __args = {...};local b = __args[1];return function()if Settings["Start Farm"]or Settings["Auto Present Event"]or Settings["Auto Celestial Soldier"]or Settings["Auto Rip Commander"]or Settings["Auto Event Halloween"]or Settings["Auto Attack Dungeon"]or Settings["Auto Fishing"]or Settings["Teleport To Fruit"]or Settings["Auto Factory"]or Settings["Auto Pirate Raid"]or Settings["Auto Elite Hunter"]or Settings["Auto Touch Pad Haki"]or Settings["Auto Summon Rip Indra"]or Settings["Attack Rip Indra"]or Settings["Attack Soul Reaper"]or Settings["Attack Dough King"]or Settings["Attack Darkbeard"]or Settings["Auto Raid"]or Settings["Auto Sea Event"]or Settings["Auto Shipwright"]or Settings["Teleport Acient Clock"]or Settings["Auto Upgrade Race V2-V3"]or Settings["Auto Trial"]or Settings["Auto Get Ghoul"]or Settings["Auto Get Cyborg"]or Settings["Auto Pull Lever"]or b[1]["Teleport Mirage"]or b[1]["Teleport To Island"]or b[1]["Teleport To Npc"]or b[1]["Teleport Prehistoric Island"]or b[1]["Sanguine Art"]or b[1]["God Human"]or b[1]["Dragon Talon"]or b[1]["Electric Claw"]or b[1]["Sharkman Karate"]or b[1]["Death Step"]or b[1].SuperHuman or b[1].DragonClaw or b[1].Electro or b[1]["Fishman Karate"]or b[1]["Black Leg"]or Settings["Teleport To Kitsune Island"]or Settings["Auto Spawn Kitsune Island"]or Settings["Auto Collect Soul Ember"]or Settings["Auto Summon Soul Ember"]or Settings["Auto Attack Leviathan"]or Settings["Auto Soul Guitar"]or Settings["Auto CDK"]or Settings["Auto Yama"]or Settings["Auto Tushita"]or Settings["Auto Upgrade Sword Inventory"]or Settings["Teleport Player"]or Settings["Auto Chest"]or Settings["Farm Observation"]or Settings["Auto Upgrade Gun Inventory"]or Settings["Kill Boss"]or Settings["Kill Mob"]or Settings["Auto UP Observation V2"]or Settings["Auto New World"]or Settings["Auto Third World"]or Settings["Tween Safe if have Items"]or Settings["Teleport Frozen Dimension"]or Settings["Auto Yoru Mini"]or Settings["Auto Quest Dojo Trainer"]or Settings["Auto Quest Dragon Hunter"]or Settings["Auto Crafting Volcanic Magnet"]or Settings["Auto Find Prehistoric Island"]or Settings["Auto Find Mirage"]or Settings["Auto Event Prehistoric Island"]or Settings["Auto Collect Bone"]or Settings["Auto Collect Berry"]or Settings["Auto Upgrade Race V2-V3 Draco"]or Settings["Auto Trial Draco"]or Settings["Auto Get Rainbow Haki"]or Settings["Follow Player Select"]or Settings["Auto Tween To Prehistoric Island"]or Settings["Auto Kill Golem"]or Settings["Auto Fix Volcano"]or Settings["Multi Find Leviathan"]or Settings["Fully Event Prehistoric Island"]or Settings["Auto Multi Raid"]or Settings["Auto Fire Shoot Heart Leviathan"]or Settings["Auto Buy Chip and Attack Law"]or Settings["Fully Trial Draco"]or Settings["Auto Finish Train Quest"]or Settings["Auto Destroy IDK"]or Settings["Auto Finish Train Draco Quest"]or Settings["Auto TTK"]or Settings["Auto Attack All Mob and Boss"]or Settings["Auto Collect Egg"]or Settings["Collect Chest When Server Spawn God's Chalice or Fist of Darkness"]or Settings["Auto Event Magnet"]then return true;end;end;end
 
-function Start_Farm_0348()if Settings["Start Farm"]or Settings["Auto Present Event"]or Settings["Auto Celestial Soldier"]or Settings["Auto Rip Commander"]or Settings["Auto Event Halloween"]or Settings["Auto Attack Dungeon"]or Settings["Auto Fishing"]or Settings["Teleport To Fruit"]or Settings["Auto Factory"]or Settings["Auto Pirate Raid"]or Settings["Auto Elite Hunter"]or Settings["Auto Touch Pad Haki"]or Settings["Auto Summon Rip Indra"]or Settings["Attack Rip Indra"]or Settings["Attack Soul Reaper"]or Settings["Attack Dough King"]or Settings["Attack Darkbeard"]or Settings["Auto Raid"]or Settings["Auto Sea Event"]or Settings["Auto Shipwright"]or Settings["Teleport Acient Clock"]or Settings["Auto Upgrade Race V2-V3"]or Settings["Auto Trial"]or Settings["Auto Get Ghoul"]or Settings["Auto Get Cyborg"]or Settings["Auto Pull Lever"]or b[1]["Teleport Mirage"]or b[1]["Teleport To Island"]or b[1]["Teleport To Npc"]or b[1]["Teleport Prehistoric Island"]or b[1]["Sanguine Art"]or b[1]["God Human"]or b[1]["Dragon Talon"]or b[1]["Electric Claw"]or b[1]["Sharkman Karate"]or b[1]["Death Step"]or b[1].SuperHuman or b[1].DragonClaw or b[1].Electro or b[1]["Fishman Karate"]or b[1]["Black Leg"]or Settings["Teleport To Kitsune Island"]or Settings["Auto Spawn Kitsune Island"]or Settings["Auto Collect Soul Ember"]or Settings["Auto Summon Soul Ember"]or Settings["Auto Attack Leviathan"]or Settings["Auto Soul Guitar"]or Settings["Auto CDK"]or Settings["Auto Yama"]or Settings["Auto Tushita"]or Settings["Auto Upgrade Sword Inventory"]or Settings["Teleport Player"]or Settings["Auto Chest"]or Settings["Farm Observation"]or Settings["Auto Upgrade Gun Inventory"]or Settings["Kill Boss"]or Settings["Kill Mob"]or Settings["Auto UP Observation V2"]or Settings["Auto New World"]or Settings["Auto Third World"]or Settings["Tween Safe if have Items"]or Settings["Teleport Frozen Dimension"]or Settings["Auto Yoru Mini"]or Settings["Auto Quest Dojo Trainer"]or Settings["Auto Quest Dragon Hunter"]or Settings["Auto Crafting Volcanic Magnet"]or Settings["Auto Find Prehistoric Island"]or Settings["Auto Find Mirage"]or Settings["Auto Event Prehistoric Island"]or Settings["Auto Collect Bone"]or Settings["Auto Collect Berry"]or Settings["Auto Upgrade Race V2-V3 Draco"]or Settings["Auto Trial Draco"]or Settings["Auto Get Rainbow Haki"]or Settings["Follow Player Select"]or Settings["Auto Tween To Prehistoric Island"]or Settings["Auto Kill Golem"]or Settings["Auto Fix Volcano"]or Settings["Multi Find Leviathan"]or Settings["Fully Event Prehistoric Island"]or Settings["Auto Multi Raid"]or Settings["Auto Fire Shoot Heart Leviathan"]or Settings["Auto Buy Chip and Attack Law"]or Settings["Fully Trial Draco"]or Settings["Auto Finish Train Quest"]or Settings["Auto Destroy IDK"]or Settings["Auto Finish Train Draco Quest"]or Settings["Auto TTK"]or Settings["Auto Attack All Mob and Boss"]or Settings["Auto Collect Egg"]or Settings["Collect Chest When Server Spawn God's Chalice or Fist of Darkness"]or Settings["Auto Craft Leviathan Crown"]or Settings["Auto Craft Leviathan Shield"]or Settings["Auto Craft Beast Hunter"]or Settings["Auto Craft Shark Tooth Necklace"]or Settings["Auto Craft Terror Jaw"]or Settings["Auto Craft Monster Magnet"]or Settings["Auto Buy Race Draco"]or Settings["Auto Event Magnet"]then return true;end;end
+function Start_Farm_0348()if Settings["Start Farm"]or Settings["Auto Present Event"]or Settings["Auto Celestial Soldier"]or Settings["Auto Rip Commander"]or Settings["Auto Event Halloween"]or Settings["Auto Attack Dungeon"]or Settings["Auto Fishing"]or Settings["Teleport To Fruit"]or Settings["Auto Factory"]or Settings["Auto Pirate Raid"]or Settings["Auto Elite Hunter"]or Settings["Auto Touch Pad Haki"]or Settings["Auto Summon Rip Indra"]or Settings["Attack Rip Indra"]or Settings["Attack Soul Reaper"]or Settings["Attack Dough King"]or Settings["Attack Darkbeard"]or Settings["Auto Raid"]or Settings["Auto Sea Event"]or Settings["Auto Shipwright"]or Settings["Teleport Acient Clock"]or Settings["Auto Upgrade Race V2-V3"]or Settings["Auto Trial"]or Settings["Auto Get Ghoul"]or Settings["Auto Get Cyborg"]or Settings["Auto Pull Lever"]or b[1]["Teleport Mirage"]or b[1]["Teleport To Island"]or b[1]["Teleport To Npc"]or b[1]["Teleport Prehistoric Island"]or b[1]["Sanguine Art"]or b[1]["God Human"]or b[1]["Dragon Talon"]or b[1]["Electric Claw"]or b[1]["Sharkman Karate"]or b[1]["Death Step"]or b[1].SuperHuman or b[1].DragonClaw or b[1].Electro or b[1]["Fishman Karate"]or b[1]["Black Leg"]or Settings["Teleport To Kitsune Island"]or Settings["Auto Spawn Kitsune Island"]or Settings["Auto Collect Soul Ember"]or Settings["Auto Summon Soul Ember"]or Settings["Auto Attack Leviathan"]or Settings["Auto Soul Guitar"]or Settings["Auto CDK"]or Settings["Auto Yama"]or Settings["Auto Tushita"]or Settings["Auto Upgrade Sword Inventory"]or Settings["Teleport Player"]or Settings["Auto Chest"]or Settings["Farm Observation"]or Settings["Auto Upgrade Gun Inventory"]or Settings["Kill Boss"]or Settings["Kill Mob"]or Settings["Auto UP Observation V2"]or Settings["Auto New World"]or Settings["Auto Third World"]or Settings["Tween Safe if have Items"]or Settings["Teleport Frozen Dimension"]or Settings["Auto Yoru Mini"]or Settings["Auto Quest Dojo Trainer"]or Settings["Auto Quest Dragon Hunter"]or Settings["Auto Crafting Volcanic Magnet"]or Settings["Auto Find Prehistoric Island"]or Settings["Auto Find Mirage"]or Settings["Auto Event Prehistoric Island"]or Settings["Auto Collect Bone"]or Settings["Auto Collect Berry"]or Settings["Auto Upgrade Race V2-V3 Draco"]or Settings["Auto Trial Draco"]or Settings["Auto Get Rainbow Haki"]or Settings["Follow Player Select"]or Settings["Auto Tween To Prehistoric Island"]or Settings["Auto Kill Golem"]or Settings["Auto Fix Volcano"]or Settings["Multi Find Leviathan"]or Settings["Fully Event Prehistoric Island"]or Settings["Auto Multi Raid"]or Settings["Auto Fire Shoot Heart Leviathan"]or Settings["Auto Buy Chip and Attack Law"]or Settings["Fully Trial Draco"]or Settings["Auto Finish Train Quest"]or Settings["Auto Destroy IDK"]or Settings["Auto Finish Train Draco Quest"]or Settings["Auto TTK"]or Settings["Auto Attack All Mob and Boss"]or Settings["Auto Collect Egg"]or Settings["Collect Chest When Server Spawn God's Chalice or Fist of Darkness"]or Settings["Auto Event Magnet"]then return true;end;end
 
 function Get_Nearest_Chest_0357()local Z,F=game:GetService("CollectionService"):GetTagged("_ChestTagged");local c=math.huge;local l=nil;local H=nil;for M,S in b[1],Z,F do if not S:GetAttribute("IsDisabled")and not S:FindFirstChild("Ignored")then M=b[2]:DistanceFromCharacter(S.Position);if M<c then c,l,H=M,i,S;end;end;end;return H;end
 
