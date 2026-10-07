@@ -1730,7 +1730,7 @@ game:GetService("Players").LocalPlayer.Idled:connect(function()
 end)
 local A =
 	loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/refs/heads/main/zzzz.lua"))()
-Main = A.CreateMain({ Title = "Banana Cat Hub  By Shigaraki [Beta]", Desc = "Banana Cat Hub - Blox Fruits [ Beta ]" })
+Main = A.CreateMain({ Title = "Banana Cat Hub - Blox Fruits [ Beta ]", Desc = "Banana Cat Hub - Blox Fruits [ Beta ]" })
 
 PageShop = Main.CreatePage({ Page_Name = "Shop", Page_Title = "Shop" })
 getgenv().Options = A.Options
@@ -15621,6 +15621,36 @@ ToggleAutoTrialDraco = RaceDracoSection.CreateToggle(
 		SaveSettings("Auto Trial Draco", b)
 	end
 )
+RaceDracoSection.CreateToggle(
+	{ Title = "Auto Buy Race Draco", Desc = "Automatically checks the Dragon Wizard for Draco progression.", Default = Settings["Auto Buy Race Draco"] or false },
+	function(b)
+		if b then
+			spawn(function()
+				while Settings["Auto Buy Race Draco"] and task.wait(1) do
+					pcall(function()
+						if game.Players.LocalPlayer.Data.Race.Value == "Draco" then
+							SaveSettings("Auto Buy Race Draco", false)
+							return
+						end
+						local wizard = workspace.NPCs:FindFirstChild("Dragon Wizard")
+							or game:GetService("ReplicatedStorage").NPCs:FindFirstChild("Dragon Wizard")
+						if wizard and wizard:FindFirstChild("HumanoidRootPart") then
+							if t:DistanceFromCharacter(wizard.HumanoidRootPart.Position) > 8 then
+								toTarget(wizard.HumanoidRootPart.CFrame * CFrame.new(0, 4, 4))
+							else
+								game:GetService("ReplicatedStorage").Modules.Net["RF/InteractDragonQuest"]:InvokeServer({
+									NPC = "Dragon Wizard",
+									Command = "Speak",
+								})
+							end
+						end
+					end)
+				end
+			end)
+		end
+		SaveSettings("Auto Buy Race Draco", b)
+	end
+)
 function DetectRockVolcano()
 	local b, s, X = next, workspace.Map.PrehistoricIsland.Core.VolcanoRocks:GetChildren()
 	local g, R = 1 / 0
@@ -18085,6 +18115,117 @@ spawn(function()
 		end)
 	end
 end)
+-- Craft Items: materiais e equipamentos relacionados ao Leviathan, Beast Hunter e Terrorshark.
+-- Não inclui automação de obtenção de armas.
+CraftItemsMain = Main.CreatePage({ Page_Name = "Craft Items", Page_Title = "Craft Items Tab" })
+CraftItemsSection = CraftItemsMain.CreateSection("Leviathan / Beast Hunter")
+
+local function CraftItemDirect(itemName, required)
+	if CheckItemInventory(itemName) then
+		return true
+	end
+	for material, amount in pairs(required) do
+		if not CheckCountItem(material, amount) then
+			return false
+		end
+	end
+	local ok = pcall(function()
+		game:GetService("ReplicatedStorage").Modules.Net
+			:FindFirstChild("RF/Craft")
+			:InvokeServer(unpack({ [1] = "Craft", [2] = itemName, [3] = 1, [4] = {} }))
+	end)
+	return ok
+end
+
+local CraftItemsData = {
+	["Leviathan Crown"] = {
+		["Dark Fragment"] = 1,
+		["Leviathan Scale"] = 10,
+		["Electric Wing"] = 5,
+	},
+	["Leviathan Shield"] = {
+		["Mirror Fractal"] = 1,
+		["Leviathan Scale"] = 30,
+		["Electric Wing"] = 10,
+		["Fool's Gold"] = 20,
+	},
+	["Beast Hunter"] = {
+		["Leviathan Scale"] = 20,
+		["Electric Wing"] = 6,
+		["Mutant Tooth"] = 2,
+		["Fool's Gold"] = 30,
+		["Shark Tooth"] = 6,
+	},
+}
+
+local function StartAutoCraftItem(settingName, itemName)
+	if Settings[settingName] then
+		spawn(function()
+			while Settings[settingName] and task.wait(1.5) do
+				pcall(function()
+					if CheckItemInventory(itemName) then
+						SaveSettings(settingName, false)
+						return
+					end
+					CraftItemDirect(itemName, CraftItemsData[itemName])
+				end)
+			end
+		end)
+	end
+end
+
+CraftItemsSection.CreateToggle(
+	{ Title = "Auto Craft Leviathan Crown", Desc = "Crafts the Leviathan Crown when materials are available.", Default = Settings["Auto Craft Leviathan Crown"] or false },
+	function(g)
+		SaveSettings("Auto Craft Leviathan Crown", g)
+		StartAutoCraftItem("Auto Craft Leviathan Crown", "Leviathan Crown")
+	end
+)
+CraftItemsSection.CreateToggle(
+	{ Title = "Auto Craft Leviathan Shield", Desc = "Crafts the Leviathan Shield when materials are available.", Default = Settings["Auto Craft Leviathan Shield"] or false },
+	function(g)
+		SaveSettings("Auto Craft Leviathan Shield", g)
+		StartAutoCraftItem("Auto Craft Leviathan Shield", "Leviathan Shield")
+	end
+)
+CraftItemsSection.CreateToggle(
+	{ Title = "Auto Craft Beast Hunter", Desc = "Crafts the Beast Hunter boat when materials are available.", Default = Settings["Auto Craft Beast Hunter"] or false },
+	function(g)
+		SaveSettings("Auto Craft Beast Hunter", g)
+		StartAutoCraftItem("Auto Craft Beast Hunter", "Beast Hunter")
+	end
+)
+
+CraftItemsSection = CraftItemsMain.CreateSection("Terrorshark")
+local CraftTerrorsharkData = {
+	["Shark Tooth Necklace"] = { ["Mutant Tooth"] = 1, ["Shark Tooth"] = 5 },
+	["Terror Jaw"] = { ["Mutant Tooth"] = 2, ["Shark Tooth"] = 5, ["Terror Eyes"] = 1, ["Fool's Gold"] = 10 },
+	["Monster Magnet"] = { ["Terror Eyes"] = 2, ["Electric Wing"] = 8, ["Fool's Gold"] = 20, ["Shark Tooth"] = 10 },
+	["Volcanic Magnet"] = { ["Scrap Metal"] = 10, ["Blaze Ember"] = 15 },
+}
+for itemName, required in pairs(CraftTerrorsharkData) do
+	local settingName = "Auto Craft " .. itemName
+	CraftItemsSection.CreateToggle(
+		{ Title = settingName, Desc = "Crafts " .. itemName .. " when materials are available.", Default = Settings[settingName] or false },
+		function(g)
+			SaveSettings(settingName, g)
+			if g then
+				spawn(function()
+					while Settings[settingName] and task.wait(1.5) do
+						pcall(function()
+							if CheckItemInventory(itemName) then
+								SaveSettings(settingName, false)
+								return
+							end
+							CraftItemDirect(itemName, required)
+						end)
+					end
+				end)
+			end
+		end
+	)
+end
+
 GetItemsMain = Main.CreatePage({ Page_Name = "Get and Upgrade Items", Page_Title = "Get and Upgrade Items Tab" })
 GetItemsSection = GetItemsMain.CreateSection("Get Items")
 GetItemsSection.CreateToggle(
