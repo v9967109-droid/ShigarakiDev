@@ -18208,6 +18208,40 @@ spawn(function()
 		end)
 	end
 end)
+CraftItemsMain = Main.CreatePage({ Page_Name = "Craft Items", Page_Title = "Craft Items Tab" })
+CraftItemsSection = CraftItemsMain.CreateSection("Leviathan")
+CraftItemsSection.CreateToggle(
+    { Title = "Auto Craft Leviathan Crown [ADDED]", Desc = nil, Default = Settings["Auto Craft Leviathan Crown"] or false },
+    function(g)
+        SaveSettings("Auto Craft Leviathan Crown", g)
+    end
+)
+CraftItemsSection.CreateToggle(
+    { Title = "Auto Craft Leviathan Shield [ADDED]", Desc = nil, Default = Settings["Auto Craft Leviathan Shield"] or false },
+    function(g)
+        SaveSettings("Auto Craft Leviathan Shield", g)
+    end
+)
+CraftItemsSection.CreateToggle(
+    { Title = "Auto Craft Beast Hunter [ADDED]", Desc = nil, Default = Settings["Auto Craft Beast Hunter"] or false },
+    function(g)
+        SaveSettings("Auto Craft Beast Hunter", g)
+    end
+)
+CraftTerrorSection = CraftItemsMain.CreateSection("Terror Shark")
+CraftTerrorSection.CreateToggle(
+    { Title = "Auto Craft Shark Tooth Necklace [ADDED]", Desc = nil, Default = Settings["Auto Craft Shark Tooth Necklace"] or false },
+    function(g)
+        SaveSettings("Auto Craft Shark Tooth Necklace", g)
+    end
+)
+CraftTerrorSection.CreateToggle(
+    { Title = "Auto Craft Terror Jaw [ADDED]", Desc = nil, Default = Settings["Auto Craft Terror Jaw"] or false },
+    function(g)
+        SaveSettings("Auto Craft Terror Jaw", g)
+    end
+)
+
 GetItemsMain = Main.CreatePage({ Page_Name = "Get and Upgrade Items", Page_Title = "Get and Upgrade Items Tab" })
 GetItemsSection = GetItemsMain.CreateSection("Get Items")
 GetItemsSection.CreateToggle(
