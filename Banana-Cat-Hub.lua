@@ -16377,6 +16377,16 @@ function AutoBuyRaceDraco()
 	end
 	if not npc then
 		pcall(function()
+			for _, obj in ipairs(workspace:GetDescendants()) do
+				if obj:IsA("Model") and obj.Name == "Dragon Wizard" then
+					npc = obj
+					break
+				end
+			end
+		end)
+	end
+	if not npc then
+		pcall(function()
 			local list = NPCManager.getNPCsByName("Dragon Wizard")
 			for _, entry in ipairs(list or {}) do
 				local instance = entry and entry._modelState and entry._modelState._instance
@@ -18190,12 +18200,15 @@ end)
 CraftItemsMain = Main.CreatePage({ Page_Name = "Craft Items", Page_Title = "Craft Items Tab" })
 
 local CraftItemsState = {}
+local CraftSeaMaterialLock = false
+
 local function CraftItemsNotify(desc)
 	pcall(function()
-		A.CreateNoti({Title="Banana Cat Hub", Desc=desc, ShowTime=5})
+		A.CreateNoti({ Title = "Banana Cat Hub", Desc = desc, ShowTime = 5 })
 	end)
 end
 
+-- Only the non-weapon crafts requested for this tab are handled here.
 local CraftRecipes = {
 	["Leviathan Crown"] = {
 		Setting = "Auto Craft Leviathan Crown",
@@ -18247,62 +18260,121 @@ local CraftRecipes = {
 	},
 }
 
+-- Materials that the existing Auto Sea Event system can directly farm.
+-- Materials without a matching Sea Event are left for the existing material/Leviathan systems.
+local CraftSeaMaterialEvents = {
+	["Electric Wing"] = "Piranha",
+	["Fool's Gold"] = "Ship",
+	["Mutant Tooth"] = "Terrorshark",
+	["Shark Tooth"] = "Shark",
+	["Terror Eyes"] = "Terrorshark",
+}
+
+local function GetItemCountSafe(itemName)
+	local count = 0
+	pcall(function()
+		for n = 1, 999 do
+			if CheckCountItem(itemName, n) then
+				count = n
+			else
+				break
+			end
+		end
+	end)
+	return count
+end
+
 local function GetMissingCraftMaterials(recipe)
 	local missing = {}
 	for _, material in ipairs(recipe.Materials) do
 		local name, needed = material[1], material[2]
-		local have = 0
-		pcall(function() have = CheckCountItem(name, needed) and needed or 0 end)
-		if have < needed then
-			local current = 0
-			pcall(function()
-				if CheckCountItem(name, 1) then
-					for n = 1, needed do
-						if CheckCountItem(name, n) then current = n else break end
-					end
-				end
-			end)
-			table.insert(missing, name .. " " .. tostring(current) .. "/" .. tostring(needed))
+		local current = GetItemCountSafe(name)
+		if current < needed then
+			table.insert(missing, {
+				Name = name,
+				Needed = needed,
+				Current = current,
+			})
 		end
 	end
 	return missing
 end
 
-local function FindBeastHunterCraftNPC()
-	local candidates = {
-		game:GetService("Workspace"),
-		game:GetService("ReplicatedStorage")
+local function FindCraftNPC(npcName)
+	local roots = {
+		workspace:FindFirstChild("NPCs"),
+		workspace:FindFirstChild("Map"),
+		workspace,
 	}
-	for _, root in ipairs(candidates) do
-		local ok, found = pcall(function()
-			return root:FindFirstChild("Beast Hunter", true)
-		end)
-		if ok and found then
-			local model = found:IsA("Model") and found or found:FindFirstAncestorOfClass("Model")
-			if model then
-				local part = model:FindFirstChild("HumanoidRootPart", true)
-					or model:FindFirstChild("Head", true)
-					if part and part:IsA("BasePart") then
+	for _, root in ipairs(roots) do
+		if root then
+			local direct = root:FindFirstChild(npcName, true)
+			if direct then
+				local model = direct:IsA("Model") and direct or direct:FindFirstAncestorOfClass("Model")
+				if model then
+					local part = model:FindFirstChild("HumanoidRootPart", true)
+						or model:FindFirstChildWhichIsA("BasePart", true)
+					if part then
 						return model, part
 					end
+				end
 			end
 		end
 	end
 	return nil, nil
 end
 
-local function InvokeCraftRecipe(itemName, remoteName)
-	local remote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/Craft")
-	if not remote then return false end
-	local ok = pcall(function()
-		remote:InvokeServer(unpack({[1]="Craft", [2]=remoteName, [3]=1, [4]={}}))
+local function RunSeaEventForMaterial(materialName)
+	local eventName = CraftSeaMaterialEvents[materialName]
+	if not eventName or CraftSeaMaterialLock then
+		return false
+	end
+
+	CraftSeaMaterialLock = true
+	local oldAutoSea = Settings["Auto Sea Event"]
+	local oldSelected = Settings["Select Sea Events"]
+	local oldStop = getgenv().StopBoatSeaEvent
+
+	pcall(function()
+		Settings["Auto Sea Event"] = true
+		Settings["Select Sea Events"] = { [eventName] = true }
+		getgenv().StopBoatSeaEvent = true
+		if typeof(AutoSeabeast) == "function" then
+			AutoSeabeast()
+		end
 	end)
-	return ok
+
+	Settings["Select Sea Events"] = oldSelected
+	Settings["Auto Sea Event"] = oldAutoSea
+	getgenv().StopBoatSeaEvent = oldStop
+	CraftSeaMaterialLock = false
+	return true
+end
+
+local function InvokeCraftRecipe(itemName, remoteName)
+	local modules = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+	local net = modules and modules:FindFirstChild("Net")
+	local remote = net and net:FindFirstChild("RF/Craft")
+	if not remote then
+		return false
+	end
+	local ok, result = pcall(function()
+		return remote:InvokeServer(unpack({ [1] = "Craft", [2] = remoteName, [3] = 1, [4] = {} }))
+	end)
+	return ok and result ~= false
 end
 
 local function RunCraftItem(itemName)
 	local recipe = CraftRecipes[itemName]
 	if not recipe then return end
+
+	-- Terror Shark prerequisite chain: only these two accessories are handled here.
+	-- Monster Magnet is intentionally not auto-crafted.
+	if itemName == "Terror Jaw" and not CheckItemInventory("Shark Tooth Necklace") then
+		RunCraftItem("Shark Tooth Necklace")
+		return
+	end
+
 	if CheckItemInventory(itemName) then
 		if not CraftItemsState[itemName .. "_owned"] then
 			CraftItemsState[itemName .. "_owned"] = true
@@ -18314,37 +18386,45 @@ local function RunCraftItem(itemName)
 
 	local missing = GetMissingCraftMaterials(recipe)
 	if #missing > 0 then
-		if not CraftItemsState[itemName .. "_search"] then
-			CraftItemsState[itemName .. "_search"] = true
-			CraftItemsNotify("" .. itemName .. " not found. Going to find materials and craft it...")
+		local material = missing[1]
+		if CraftSeaMaterialEvents[material.Name] then
+			if not CraftItemsState[itemName .. "_sea_notice"] then
+				CraftItemsState[itemName .. "_sea_notice"] = true
+				CraftItemsNotify("Missing " .. material.Name .. " (" .. material.Current .. "/" .. material.Needed .. "). Using Auto Sea Event...")
+			end
+			RunSeaEventForMaterial(material.Name)
+		else
+			if not CraftItemsState[itemName .. "_material_notice"] then
+				CraftItemsState[itemName .. "_material_notice"] = true
+				CraftItemsNotify("Missing " .. material.Name .. " (" .. material.Current .. "/" .. material.Needed .. ").")
+			end
 		end
-		-- Material farming is intentionally left to the existing Sea Event/material systems.
 		return
 	end
-	CraftItemsState[itemName .. "_search"] = nil
 
-	-- Primeiro teste seguro: a Leviathan Crown exige o NPC Beast Hunter.
-	-- Somente depois de possuir todos os materiais, vai até o NPC e tenta o craft.
-	if itemName == "Leviathan Crown" then
-		local npc, npcPart = FindBeastHunterCraftNPC()
-		if not npcPart then
-			if not CraftItemsState[itemName .. "_npc"] then
-				CraftItemsState[itemName .. "_npc"] = true
-				CraftItemsNotify("Beast Hunter NPC not found. Waiting...")
-			end
-			return
+	CraftItemsState[itemName .. "_sea_notice"] = nil
+	CraftItemsState[itemName .. "_material_notice"] = nil
+
+	local npc, part = FindCraftNPC("Beast Hunter")
+	if not npc or not part then
+		if not CraftItemsState[itemName .. "_npc_notice"] then
+			CraftItemsState[itemName .. "_npc_notice"] = true
+			CraftItemsNotify("Beast Hunter NPC not found yet.")
 		end
-		CraftItemsState[itemName .. "_npc"] = nil
-		pcall(function()
-			toTarget(npcPart.CFrame * CFrame.new(0, 3, 0))
-		end)
-		task.wait(0.5)
+		return
+	end
+	CraftItemsState[itemName .. "_npc_notice"] = nil
+
+	if t:DistanceFromCharacter(part.Position) > 12 then
+		toTarget(part.CFrame * CFrame.new(0, 2, 0))
+		return
 	end
 
 	if not CraftItemsState[itemName .. "_craft"] then
 		CraftItemsState[itemName .. "_craft"] = true
 		CraftItemsNotify("Crafting " .. itemName .. "...")
 	end
+
 	if InvokeCraftRecipe(itemName, recipe.RemoteName) then
 		task.wait(0.8)
 		if CheckItemInventory(itemName) then
@@ -18356,12 +18436,18 @@ end
 
 local function AddCraftToggle(section, title, itemName)
 	local recipe = CraftRecipes[itemName]
-	section.CreateToggle({Title=title, Desc=nil, Default=Settings[recipe.Setting] or false}, function(g)
-		SaveSettings(recipe.Setting, g)
-		if g then
+	section.CreateToggle({
+		Title = title,
+		Desc = nil,
+		Default = Settings[recipe.Setting] or false,
+	}, function(enabled)
+		SaveSettings(recipe.Setting, enabled)
+		if enabled then
 			spawn(function()
-				while Settings[recipe.Setting] and task.wait(0.5) do
-					pcall(function() RunCraftItem(itemName) end)
+				while Settings[recipe.Setting] and task.wait(0.75) do
+					pcall(function()
+						RunCraftItem(itemName)
+					end)
 				end
 			end)
 		end
