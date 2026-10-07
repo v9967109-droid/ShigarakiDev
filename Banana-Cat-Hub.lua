@@ -134,7 +134,11 @@ function ForceResetSchema(l, Q)
 end
 
 
-if getgenv().__BF_LOADED then
+-- Prevent a stale/unfinished previous execution from blocking this run.
+-- The old source set __BF_LOADED before all recovery/compatibility passes
+-- finished and never assigned __BF_RESULT, causing later loadstrings to
+-- return nil immediately.
+if getgenv().__BF_LOADED and getgenv().__BF_RESULT ~= nil then
 	return getgenv().__BF_RESULT
 end
 
@@ -23527,7 +23531,6 @@ BananaCatBF.AutoFarm = AutoFarm
 BananaCatBF.CheckQuest = CheckQuest
 getgenv().CheckQuest = CheckQuest
 
-getgenv().__BF_LOADED = true
 
 
 
@@ -26304,3 +26307,11 @@ __PASS38_NAMED_FUNCTIONS = {
         if type(__fn) == "function" then rawset(_G, __name, __fn) end
     end
 end)()
+
+-- ================================================================
+-- FINAL LOAD STATE
+-- Only set after every source/recovery/compatibility pass above
+-- has executed successfully.
+-- ================================================================
+getgenv().__BF_RESULT = true
+getgenv().__BF_LOADED = true
