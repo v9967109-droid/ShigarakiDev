@@ -16354,6 +16354,98 @@ RaceDracoSection.CreateToggle(
 		SaveSettings("Fully Trial Draco", g)
 	end
 )
+
+function AutoBuyRaceDraco()
+	local player = game:GetService("Players").LocalPlayer
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local data = player:FindFirstChild("Data")
+	local race = data and data:FindFirstChild("Race")
+	if not root or not race then
+		return false
+	end
+
+	-- Já possui a Draco: não continua interagindo com o NPC.
+	if race.Value == "Draco" then
+		if Settings["Auto Buy Race Draco"] then
+			Settings["Auto Buy Race Draco"] = false
+			SaveSettings("Auto Buy Race Draco", false)
+			pcall(function()
+				A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Draco already obtained", ShowTime = 5 })
+			end)
+		end
+		return true
+	end
+
+	local npc
+	pcall(function()
+		npc = workspace.NPCs and workspace.NPCs:FindFirstChild("Dragon Wizard")
+	end)
+	if not npc then
+		pcall(function()
+			local npcsFolder = game:GetService("ReplicatedStorage"):FindFirstChild("NPCs")
+			npc = npcsFolder and npcsFolder:FindFirstChild("Dragon Wizard")
+		end)
+	end
+	if not npc then
+		pcall(function()
+			local list = NPCManager.getNPCsByName("Dragon Wizard")
+			local entry = list and list[1]
+			npc = entry and entry._modelState and entry._modelState._instance
+		end)
+	end
+
+	local npcRoot = npc and npc:FindFirstChild("HumanoidRootPart")
+	if not npcRoot then
+		return false
+	end
+
+	if (root.Position - npcRoot.Position).Magnitude > 8 then
+		toTarget(npcRoot.CFrame * CFrame.new(0, 4, 4))
+		return false
+	end
+
+	local remote
+	pcall(function()
+		local net = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+			and game:GetService("ReplicatedStorage").Modules:FindFirstChild("Net")
+		remote = net and net:FindFirstChild("RF/InteractDragonQuest")
+	end)
+	if not remote then
+		return false
+	end
+
+	local ok, result = pcall(function()
+		return remote:InvokeServer({ NPC = "Dragon Wizard", Command = "DragonRace" })
+	end)
+
+	if ok and race.Value == "Draco" then
+		Settings["Auto Buy Race Draco"] = false
+		SaveSettings("Auto Buy Race Draco", false)
+		pcall(function()
+			A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Draco obtained", ShowTime = 5 })
+		end)
+		return true
+	end
+
+	return result
+end
+
+RaceDracoSection.CreateToggle(
+	{ Title = "Auto Buy Race Draco", Desc = nil, Default = Settings["Auto Buy Race Draco"] or false },
+	function(g)
+		if g then
+			spawn(function()
+				while Settings["Auto Buy Race Draco"] and task.wait(0.2) do
+					pcall(function()
+						AutoBuyRaceDraco()
+					end)
+				end
+			end)
+		end
+		SaveSettings("Auto Buy Race Draco", g)
+	end
+)
 RaceDracoSection.CreateToggle(
 	{ Title = "Auto Buy Gear Draco", Desc = nil, Default = Settings["Auto Buy Gear Draco"] or false },
 	function(g)
