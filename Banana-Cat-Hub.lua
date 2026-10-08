@@ -16364,7 +16364,7 @@ local function FindDragonWizard()
 			end
 		end
 	end)
-	return nil
+	return npc
 end
 
 local function TeleportToHydraForDraco()
@@ -16487,13 +16487,7 @@ ToggleAutoBuyRaceDraco = RaceDracoSection.CreateToggle(
 			getgenv().AutoBuyRaceDracoMovingNoti = false
 			getgenv().AutoBuyRaceDracoEquippedNoti = false
 
-			-- Teleport to Hydra immediately when the toggle is turned on.
-			spawn(function()
-				if Settings["Auto Buy Race Draco"] then
-					TeleportToHydraForDraco()
-				end
-			end)
-
+			-- Run one controller loop so the Hydra teleport is not started twice.
 			spawn(function()
 				while Settings["Auto Buy Race Draco"] and task.wait(0.25) do
 					pcall(AutoBuyRaceDraco)
