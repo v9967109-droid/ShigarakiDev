@@ -5935,7 +5935,7 @@ local function m(E, l, Q)
 		-- remote queue from flooding (flooding is what made the clicks stop after a while).
 		-- Adjust with getgenv().FruitM1Delay (seconds).
 		local now = os.clock()
-		local minDelay = getgenv().FruitM1Delay or 0.015
+		local minDelay = getgenv().FruitM1Delay or 0.00001 -- 0.01 ms requested (actual speed is limited by frame/server timing)
 		if now - FruitM1State.LastFire < minDelay then
 			return true
 		end
