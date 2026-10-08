@@ -1730,7 +1730,7 @@ game:GetService("Players").LocalPlayer.Idled:connect(function()
 end)
 local A =
 	loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/refs/heads/main/zzzz.lua"))()
-Main = A.CreateMain({ Title = "Banana Cat Hub - Blox Fruits [ Beta ]", Desc = "Banana Cat Hub - Blox Fruits [ Beta ]" })
+Main = A.CreateMain({ Title = "Banana Cat Hub", Desc = "Blox Fruits" })
 
 PageShop = Main.CreatePage({ Page_Name = "Shop", Page_Title = "Shop" })
 getgenv().Options = A.Options
@@ -16332,6 +16332,110 @@ RaceDracoSection.CreateToggle(
 			end)
 		end
 		SaveSettings("Fully Trial Draco", g)
+	end
+)
+
+
+-- AUTO BUY RACE DRACO
+function AutoBuyRaceDraco()
+	local player = game:GetService("Players").LocalPlayer
+	if not player or not player:FindFirstChild("Data") then
+		return
+	end
+
+	local race = player.Data:FindFirstChild("Race")
+	if race and race.Value == "Draco" then
+		if not getgenv().AutoBuyRaceDracoEquippedNoti then
+			getgenv().AutoBuyRaceDracoEquippedNoti = true
+			A.CreateNoti({
+				Title = "Banana Cat Hub",
+				Desc = "You Equipped Draco Race",
+				ShowTime = 5,
+			})
+		end
+		if ToggleAutoBuyRaceDraco then
+			ToggleAutoBuyRaceDraco:SetStage(false)
+		end
+		return
+	end
+
+	getgenv().AutoBuyRaceDracoEquippedNoti = false
+
+	local npc
+	pcall(function()
+		npc = workspace.NPCs:FindFirstChild("Dragon Wizard")
+	end)
+	if not npc then
+		pcall(function()
+			npc = game:GetService("ReplicatedStorage").NPCs:FindFirstChild("Dragon Wizard")
+		end)
+	end
+
+	if not npc then
+		return
+	end
+
+	local root = npc:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+
+	if t:DistanceFromCharacter(root.Position) > 8 then
+		if not getgenv().AutoBuyRaceDracoMovingNoti then
+			getgenv().AutoBuyRaceDracoMovingNoti = true
+			A.CreateNoti({
+				Title = "Banana Cat Hub",
+				Desc = "Moving to Dragon Wizard...",
+				ShowTime = 5,
+			})
+		end
+		toTarget(root.CFrame * CFrame.new(0, 4, 4))
+		return
+	end
+
+	getgenv().AutoBuyRaceDracoMovingNoti = false
+	pcall(function()
+		game:GetService("ReplicatedStorage").Modules.Net["RF/InteractDragonQuest"]:InvokeServer({
+			NPC = "Dragon Wizard",
+			Command = "Upgrade",
+		})
+	end)
+	task.wait(1)
+
+	if race.Value == "Draco" then
+		if not getgenv().AutoBuyRaceDracoEquippedNoti then
+			getgenv().AutoBuyRaceDracoEquippedNoti = true
+			A.CreateNoti({
+				Title = "Banana Cat Hub",
+				Desc = "You Equipped Draco Race",
+				ShowTime = 5,
+			})
+		end
+		if ToggleAutoBuyRaceDraco then
+			ToggleAutoBuyRaceDraco:SetStage(false)
+		end
+	end
+end
+
+ToggleAutoBuyRaceDraco = RaceDracoSection.CreateToggle(
+	{
+		Title = "Auto Buy Race Draco",
+		Desc = "Automatically go to Dragon Wizard and buy/equip Draco Race",
+		Default = Settings["Auto Buy Race Draco"] or false,
+	},
+	function(g)
+		SaveSettings("Auto Buy Race Draco", g)
+		if g then
+			getgenv().AutoBuyRaceDracoMovingNoti = false
+			getgenv().AutoBuyRaceDracoEquippedNoti = false
+			spawn(function()
+				while Settings["Auto Buy Race Draco"] and (task.wait(0.25)) do
+					pcall(function()
+						AutoBuyRaceDraco()
+					end)
+				end
+			end)
+		end
 	end
 )
 RaceDracoSection.CreateToggle(
