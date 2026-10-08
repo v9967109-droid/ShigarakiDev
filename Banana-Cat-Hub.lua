@@ -1730,7 +1730,7 @@ game:GetService("Players").LocalPlayer.Idled:connect(function()
 end)
 local A =
 	loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/refs/heads/main/zzzz.lua"))()
-Main = A.CreateMain({ Title = "Banana Cat Hub", Desc = "Blox Fruits" })
+Main = A.CreateMain({ Title = "Banana Cat Hub - Blox Fruits [ Beta ]", Desc = "-- Blox Fruits" })
 
 PageShop = Main.CreatePage({ Page_Name = "Shop", Page_Title = "Shop" })
 getgenv().Options = A.Options
@@ -16372,10 +16372,23 @@ function AutoBuyRaceDraco()
 	end
 
 	if not npc then
+		pcall(function()
+			local list = NPCManager.getNPCsByName("Dragon Wizard")
+			if list and list[1] and list[1]._modelState and list[1]._modelState._instance then
+				npc = list[1]._modelState._instance
+			end
+		end)
+	end
+	if not npc then
+		pcall(function()
+			npc = DetectNpc("Dragon Wizard")
+		end)
+	end
+	if not npc then
 		return
 	end
 
-	local root = npc:FindFirstChild("HumanoidRootPart")
+	local root = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart", true)
 	if not root then
 		return
 	end
