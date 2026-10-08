@@ -1730,7 +1730,7 @@ game:GetService("Players").LocalPlayer.Idled:connect(function()
 end)
 local A =
 	loadstring(game:HttpGet("https://raw.githubusercontent.com/obiiyeuem/vthangsitink/refs/heads/main/zzzz.lua"))()
-Main = A.CreateMain({ Title = "Banana Cat Hub - Blox Fruits [ Beta ]", Desc = "Banana Cat Hub - Blox Fruits [ Beta ]" })
+Main = A.CreateMain({ Title = "Banana Cat Hub", Desc = "- Blox Fruits [ Beta ]" })
 
 PageShop = Main.CreatePage({ Page_Name = "Shop", Page_Title = "Shop" })
 getgenv().Options = A.Options
@@ -15216,6 +15216,105 @@ BoatSettingSection.CreateToggle(
 RaceMain = Main.CreatePage({ Page_Name = "Upgrade Race", Page_Title = "Upgrade Race" })
 RaceDracoMain = Main.CreatePage({ Page_Name = "Race Draco", Page_Title = "Race Draco" })
 RaceDracoSection = RaceDracoMain.CreateSection("Race Draco")
+
+
+-- Auto Buy Draco: detecta o Dragon Wizard, vai até ele e solicita a troca para Draco.
+local function GetDragonWizardForAutoBuyDraco()
+    local npcFolder = workspace:FindFirstChild("NPCs")
+    if npcFolder then
+        local npc = npcFolder:FindFirstChild("Dragon Wizard", true)
+        if npc then
+            return npc
+        end
+    end
+
+    local ok, list = pcall(function()
+        return NPCManager.getNPCsByName("Dragon Wizard")
+    end)
+    if ok and type(list) == "table" then
+        for _, entry in ipairs(list) do
+            local model = entry
+            pcall(function()
+                if entry and entry._modelState and entry._modelState._instance then
+                    model = entry._modelState._instance
+                end
+            end)
+            if model and model:IsA("Model") then
+                return model
+            end
+        end
+    end
+
+    return nil
+end
+
+local function AutoBuyDraco()
+    if not Settings["Auto Buy Draco"] then
+        return
+    end
+
+    local player = game:GetService("Players").LocalPlayer
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root then
+        return
+    end
+
+    if player.Data and player.Data:FindFirstChild("Race") and player.Data.Race.Value == "Draco" then
+        return
+    end
+
+    local npc = GetDragonWizardForAutoBuyDraco()
+    if not npc or not npc.Parent then
+        return
+    end
+
+    local target = npc:FindFirstChild("HumanoidRootPart", true)
+        or npc.PrimaryPart
+        or npc:FindFirstChild("Head", true)
+
+    if not target or not target:IsA("BasePart") then
+        return
+    end
+
+    local distance = (root.Position - target.Position).Magnitude
+    if distance > 10 then
+        toTarget(target.CFrame * CFrame.new(0, 4, 4))
+        return
+    end
+
+    local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+    remote = remote and remote:FindFirstChild("Net")
+    remote = remote and remote:FindFirstChild("RF/InteractDragonQuest")
+    if remote then
+        pcall(function()
+            remote:InvokeServer({
+                NPC = "Dragon Wizard",
+                Command = "DragonRace"
+            })
+        end)
+    end
+end
+
+RaceDracoSection.CreateToggle(
+    {
+        Title = "Auto Buy Draco",
+        Desc = "Detect Dragon Wizard, go to him and switch to Draco.",
+        Default = Settings["Auto Buy Draco"] or false,
+    },
+    function(g)
+        SaveSettings("Auto Buy Draco", g)
+        if g then
+            task.spawn(function()
+                while Settings["Auto Buy Draco"] do
+                    pcall(AutoBuyDraco)
+                    task.wait(0.2)
+                end
+            end)
+        end
+    end
+)
 RaceDracoSection.CreateToggle(
 	{
 		Title = "Ignore Craft Volcanic Magnet [ Draco Fully ]",
