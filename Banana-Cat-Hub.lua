@@ -16337,56 +16337,79 @@ RaceDracoSection.CreateToggle(
 
 
 -- AUTO BUY RACE DRACO
--- Hydra entrance and Dragon Wizard position used only as a fallback
--- when the NPC is not currently streamed into Workspace.
-local DragonWizardEntrance = Vector3.new(5661.5302734375, 1013.411315918, -334.9619140625)
-local DragonWizardPosition = CFrame.new(5814.42724609375, 1208.3267822265625, 884.5785522460938)
+-- First go to Hydra Island, then detect and approach the Dragon Wizard.
+local HydraEntrance = CFrame.new(5661.5302734375, 1013.4113159179688, -334.9619140625)
 
-function GetDragonWizardForAutoBuy()
+local function FindDragonWizard()
 	local npc
-
 	pcall(function()
-		if workspace:FindFirstChild("NPCs") then
-			npc = workspace.NPCs:FindFirstChild("Dragon Wizard")
+		local npcs = workspace:FindFirstChild("NPCs")
+		if npcs then
+			npc = npcs:FindFirstChild("Dragon Wizard")
 		end
 	end)
-
 	if npc and npc:FindFirstChild("HumanoidRootPart") then
 		return npc
 	end
 
-	-- Use the same NPC manager already used by the Draco systems in this source.
 	pcall(function()
-		if NPCManager and NPCManager.getNPCsByName then
-			local list = NPCManager.getNPCsByName("Dragon Wizard")
-			if list and list[1] and list[1]._modelState and list[1]._modelState._instance then
-				local model = list[1]._modelState._instance
-				if model:FindFirstChild("HumanoidRootPart") then
+		local list = NPCManager.getNPCsByName("Dragon Wizard")
+		if type(list) == "table" then
+			for _, data in ipairs(list) do
+				local model = data and data._modelState and data._modelState._instance
+				if model and model:FindFirstChild("HumanoidRootPart") then
 					npc = model
+					break
 				end
 			end
 		end
 	end)
-
-	return npc
+	return nil
 end
 
-function AutoBuyRaceDraco()
+local function TeleportToHydraForDraco()
 	local player = game:GetService("Players").LocalPlayer
-	if not player or not player:FindFirstChild("Data") then
-		return
+	local character = player and player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then return false end
+
+	getgenv().AutoBuyRaceDracoHydraStarted = true
+	getgenv().AutoBuyRaceDracoMovingNoti = true
+	A.CreateNoti({
+		Title = "Banana Cat Hub",
+		Desc = "Moving to Dragon Wizard...",
+		ShowTime = 5,
+	})
+
+	-- Use the same server entrance mechanism already used by this hub.
+	local ok = pcall(function()
+		game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer(
+			"requestEntrance",
+			HydraEntrance.Position
+		)
+	end)
+
+	-- Give the entrance teleport time to finish before looking for the NPC.
+	task.wait(1.5)
+
+	-- If the entrance did not move us close enough, use the hub's normal
+	-- movement system to reach the Hydra entrance. Do not set CFrame directly.
+	if root.Parent and (root.Position - HydraEntrance.Position).Magnitude > 1500 then
+		pcall(function()
+			toTarget(HydraEntrance)
+		end)
 	end
 
-	local character = player.Character
-	local hrp = character and character:FindFirstChild("HumanoidRootPart")
-	if not hrp then
-		return
-	end
+	return ok
+end
 
-	local race = player.Data:FindFirstChild("Race")
-	if not race then
-		return
-	end
+local function AutoBuyRaceDraco()
+	local player = game:GetService("Players").LocalPlayer
+	local character = player and player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local data = player and player:FindFirstChild("Data")
+	local race = data and data:FindFirstChild("Race")
+	if not root or not race then return end
 
 	if tostring(race.Value) == "Draco" then
 		if not getgenv().AutoBuyRaceDracoEquippedNoti then
@@ -16397,117 +16420,57 @@ function AutoBuyRaceDraco()
 				ShowTime = 5,
 			})
 		end
-
-		getgenv().AutoBuyRaceDracoMovingNoti = false
-		getgenv().AutoBuyRaceDracoGoingHydra = false
-
+		SaveSettings("Auto Buy Race Draco", false)
 		if ToggleAutoBuyRaceDraco then
 			ToggleAutoBuyRaceDraco:SetStage(false)
 		end
-		SaveSettings("Auto Buy Race Draco", false)
 		return
 	end
 
-	getgenv().AutoBuyRaceDracoEquippedNoti = false
+	-- When enabled, the first action is always going to Hydra.
+	if not getgenv().AutoBuyRaceDracoHydraStarted then
+		TeleportToHydraForDraco()
+		return
+	end
 
-	local npc = GetDragonWizardForAutoBuy()
-	local npcRoot = npc and npc:FindFirstChild("HumanoidRootPart")
-
-	-- NPC is not streamed yet. Go to Hydra first.
-	if not npcRoot then
-		if not getgenv().AutoBuyRaceDracoMovingNoti then
-			getgenv().AutoBuyRaceDracoMovingNoti = true
-			A.CreateNoti({
-				Title = "Banana Cat Hub",
-				Desc = "Moving to Dragon Wizard...",
-				ShowTime = 5,
-			})
-		end
-
-		-- Do this only once so the movement is not restarted every 0.25 seconds.
-		if not getgenv().AutoBuyRaceDracoGoingHydra then
-			getgenv().AutoBuyRaceDracoGoingHydra = true
-
-			local oldDistance = (hrp.Position - DragonWizardEntrance).Magnitude
-
+	local npc = FindDragonWizard()
+	if not npc or not npc:FindFirstChild("HumanoidRootPart") then
+		-- Wait at/near Hydra until the NPC is streamed in.
+		if (root.Position - HydraEntrance.Position).Magnitude > 80 then
 			pcall(function()
-				game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer(
-					"requestEntrance",
-					DragonWizardEntrance
-				)
+				toTarget(HydraEntrance)
 			end)
-
-			task.wait(0.8)
-
-			-- If requestEntrance did not move us, use the same CFrame
-			-- fallback already used elsewhere in this source.
-			character = player.Character
-			hrp = character and character:FindFirstChild("HumanoidRootPart")
-
-			if hrp and (hrp.Position - DragonWizardEntrance).Magnitude > 1800
-				and oldDistance > 1800 then
-				pcall(function()
-					hrp.CFrame = CFrame.new(DragonWizardEntrance)
-				end)
-			end
-
-			task.wait(1)
-			getgenv().AutoBuyRaceDracoGoingHydra = false
 		end
-
 		return
 	end
 
-	-- Dragon Wizard is now streamed. Move to the actual NPC.
-	if player:DistanceFromCharacter(npcRoot.Position) > 8 then
-		if not getgenv().AutoBuyRaceDracoMovingNoti then
-			getgenv().AutoBuyRaceDracoMovingNoti = true
-			A.CreateNoti({
-				Title = "Banana Cat Hub",
-				Desc = "Moving to Dragon Wizard...",
-				ShowTime = 5,
-			})
-		end
-
-		toTarget(npcRoot.CFrame * CFrame.new(0, 4, 4))
+	local npcRoot = npc.HumanoidRootPart
+	if (root.Position - npcRoot.Position).Magnitude > 10 then
+		pcall(function()
+			toTarget(npcRoot.CFrame * CFrame.new(0, 4, 4))
+		end)
 		return
 	end
 
 	getgenv().AutoBuyRaceDracoMovingNoti = false
+	local remote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/InteractDragonQuest")
+	if not remote then return end
 
-	local remote
 	pcall(function()
-		remote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/InteractDragonQuest")
+		remote:InvokeServer({ NPC = "Dragon Wizard", Command = "DragonRace" })
 	end)
-
-	if not remote then
-		return
-	end
-
-	-- Interact with Dragon Wizard to obtain the Draco race.
-	pcall(function()
-		remote:InvokeServer({
-			NPC = "Dragon Wizard",
-			Command = "DragonRace",
-		})
-	end)
-
 	task.wait(1)
 
 	if tostring(race.Value) == "Draco" then
-		if not getgenv().AutoBuyRaceDracoEquippedNoti then
-			getgenv().AutoBuyRaceDracoEquippedNoti = true
-			A.CreateNoti({
-				Title = "Banana Cat Hub",
-				Desc = "You Equipped Draco Race",
-				ShowTime = 5,
-			})
-		end
-
+		A.CreateNoti({
+			Title = "Banana Cat Hub",
+			Desc = "You Equipped Draco Race",
+			ShowTime = 5,
+		})
+		SaveSettings("Auto Buy Race Draco", false)
 		if ToggleAutoBuyRaceDraco then
 			ToggleAutoBuyRaceDraco:SetStage(false)
 		end
-		SaveSettings("Auto Buy Race Draco", false)
 	end
 end
 
@@ -16520,24 +16483,28 @@ ToggleAutoBuyRaceDraco = RaceDracoSection.CreateToggle(
 	function(g)
 		SaveSettings("Auto Buy Race Draco", g)
 		if g then
+			getgenv().AutoBuyRaceDracoHydraStarted = false
 			getgenv().AutoBuyRaceDracoMovingNoti = false
 			getgenv().AutoBuyRaceDracoEquippedNoti = false
-			getgenv().AutoBuyRaceDracoGoingHydra = false
 
+			-- Teleport to Hydra immediately when the toggle is turned on.
 			spawn(function()
-				while Settings["Auto Buy Race Draco"] and (task.wait(0.25)) do
-					pcall(function()
-						AutoBuyRaceDraco()
-					end)
+				if Settings["Auto Buy Race Draco"] then
+					TeleportToHydraForDraco()
 				end
 			end)
+
+			spawn(function()
+				while Settings["Auto Buy Race Draco"] and task.wait(0.25) do
+					pcall(AutoBuyRaceDraco)
+				end
+				getgenv().AutoBuyRaceDracoHydraStarted = false
+			end)
 		else
-			getgenv().AutoBuyRaceDracoMovingNoti = false
-			getgenv().AutoBuyRaceDracoGoingHydra = false
+			getgenv().AutoBuyRaceDracoHydraStarted = false
 		end
 	end
 )
-
 RaceDracoSection.CreateToggle(
 	{ Title = "Auto Buy Gear Draco", Desc = nil, Default = Settings["Auto Buy Gear Draco"] or false },
 	function(g)
