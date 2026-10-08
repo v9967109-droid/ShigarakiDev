@@ -1876,6 +1876,38 @@ SectionShopMisc.CreateButton({ Title = "Reroll Race" }, function()
 	game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BlackbeardReward", "Reroll", "2")
 end)
 
+SectionShopMisc.CreateButton({ Title = "Buy Race Draco" }, function()
+    -- One click: request Draco directly; do not teleport or walk to Hydra Island.
+    local player = game:GetService("Players").LocalPlayer
+    local data = player and player:FindFirstChild("Data")
+    local race = data and data:FindFirstChild("Race")
+    if race and tostring(race.Value) == "Draco" then
+        A.CreateNoti({Title = "Banana Cat Hub", Desc = "You already have Draco Race", ShowTime = 5})
+        return
+    end
+
+    local remote
+    pcall(function()
+        remote = game:GetService("ReplicatedStorage").Modules.Net:FindFirstChild("RF/InteractDragonQuest")
+    end)
+    if not remote then
+        A.CreateNoti({Title = "Banana Cat Hub", Desc = "Draco purchase remote unavailable", ShowTime = 5})
+        return
+    end
+
+    local ok, result = pcall(function()
+        return remote:InvokeServer({NPC = "Dragon Wizard", Command = "DragonRace"})
+    end)
+    task.wait(0.5)
+    if race and tostring(race.Value) == "Draco" then
+        A.CreateNoti({Title = "Banana Cat Hub", Desc = "You Equipped Draco Race", ShowTime = 5})
+    elseif not ok then
+        A.CreateNoti({Title = "Banana Cat Hub", Desc = "Draco purchase request failed", ShowTime = 5})
+    else
+        A.CreateNoti({Title = "Banana Cat Hub", Desc = "Game may require Draco prerequisites", ShowTime = 5})
+    end
+end)
+
 SectionShopMisc.CreateButton({ Title = "Reset Stats" }, function()
 	game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BlackbeardReward", "Refund", "1")
 	game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("BlackbeardReward", "Refund", "2")
@@ -16417,27 +16449,8 @@ function AutoBuyRaceDraco()
     end
 end
 
-ToggleAutoBuyRaceDraco = RaceDracoSection.CreateToggle(
-    {
-        Title = "Auto Buy Race Draco",
-        Desc = "Automatically go to Dragon Wizard and buy/equip Draco Race",
-        Default = Settings["Auto Buy Race Draco"] or false,
-    },
-    function(g)
-        SaveSettings("Auto Buy Race Draco", g)
-        getgenv().AutoBuyRaceDracoHydraStarted = false
-        getgenv().AutoBuyRaceDracoMovingNoti = false
-        getgenv().AutoBuyRaceDracoEquippedNoti = false
-        if g then
-            spawn(function()
-                while Settings["Auto Buy Race Draco"] and task.wait(0.5) do
-                    pcall(AutoBuyRaceDraco)
-                end
-                getgenv().AutoBuyRaceDracoHydraStarted = false
-            end)
-        end
-    end
-)
+-- Auto Buy Race Draco is now a one-click button in Shop, directly below Reroll Race.
+
 RaceDracoSection.CreateToggle(
 	{ Title = "Auto Buy Gear Draco", Desc = nil, Default = Settings["Auto Buy Gear Draco"] or false },
 	function(g)
