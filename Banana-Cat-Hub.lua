@@ -16364,9 +16364,19 @@ function AutoBuyRaceDraco()
             getgenv().AutoBuyRaceDracoMovingNoti = true
             A.CreateNoti({Title = "Banana Cat Hub", Desc = "Moving to Dragon Wizard...", ShowTime = 5})
         end
+        -- Try the game's entrance remote first, then use the hub's own movement
+        -- routine to reach the Hydra destination if the entrance request does not move us.
         pcall(function()
             game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("requestEntrance", HydraEntranceDraco.Position)
         end)
+        task.wait(1)
+        local currentCharacter = player.Character
+        local currentRoot = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+        if currentRoot and (currentRoot.Position - HydraEntranceDraco.Position).Magnitude > 120 then
+            pcall(function()
+                toTarget(HydraEntranceDraco)
+            end)
+        end
         task.wait(2)
         return
     end
