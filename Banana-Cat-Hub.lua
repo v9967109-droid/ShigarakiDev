@@ -7779,6 +7779,15 @@ function FarmMethod()
 			f = info.Mob
 		end
 	end
+	-- After accepting a quest, prioritize the mob named by the active quest data.
+	-- This prevents FarmMethod from continuing to target a stale/default mob and
+	-- leaving the character at the quest giver.
+	if not Settings["Farm Material"] and SelectedFarmMethod ~= "Aura Farm" and QuestVisible then
+		local okActive, activeMob = pcall(GetActiveFarmQuestMob)
+		if okActive and type(activeMob) == "string" and activeMob ~= "" then
+			f = activeMob
+		end
+	end
 	do
 		-- Quando a missão já foi aceita, usa o alvo exato da quest antes da lista
 		-- de mobs do método. Isso evita permanecer parado no NPC após aceitar.
