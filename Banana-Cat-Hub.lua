@@ -7647,7 +7647,7 @@ function SpecialHop(C)
 	end
 end
 
--- Histórico local dos pontos de spawn usados pelo controlador antigo.
+-- Histórico local dos pontos de spawn usados pelo FarmMethod.
 -- Mantém o controle disponível para o fluxo Start Farm e evita erro quando nenhum mob está carregado.
 local N = {}
 
@@ -7656,11 +7656,15 @@ local N = {}
 -- usamos também os dados da própria quest como fallback.
 local function GetActiveFarmQuestMob(QuestName, QuestId)
 	-- Sempre prioriza a tarefa realmente aceita pelo jogador.
-	-- Isso impede que Bones/Katakuri/Tyrant/Aura ataquem um NPC
-	-- diferente do objetivo atual da quest.
+	-- O jogador local nesta source é `t` (não `Z`, que não é a referência
+	-- confiável do Player aqui). Se a leitura falhar, usa os fallbacks abaixo.
 	local ok, QuestData = pcall(function()
-		return Z and Z.Data and Z.Data.QuestData
+		return t and t:FindFirstChild("Data") and t.Data:FindFirstChild("QuestData")
 	end)
+	if ok and typeof(QuestData) == "Instance" then
+		local taskValue = QuestData:FindFirstChild("Task")
+		if taskValue then QuestData = taskValue.Value end
+	end
 	if ok and type(QuestData) == "table" and type(QuestData.Task) == "table" then
 		for MobName, Progress in pairs(QuestData.Task) do
 			if type(MobName) == "string" and MobName ~= "" then
@@ -7691,7 +7695,11 @@ end
 
 local function IsActiveFarmQuestComplete()
 	local ok, Task = pcall(function()
-		return Z and Z.Data and Z.Data.QuestData and Z.Data.QuestData.Task
+		local questData = t and t:FindFirstChild("Data") and t.Data:FindFirstChild("QuestData")
+		if not questData then return nil end
+		if questData:IsA("ValueBase") then questData = questData.Value end
+		if type(questData) == "table" then return questData.Task end
+		return questData:FindFirstChild("Task")
 	end)
 	if not ok or type(Task) ~= "table" then
 		return false
@@ -7711,19 +7719,340 @@ local SpecialQuestCycleState = {
 	lastQuestVisible = false,
 }
 
--- Legacy farm controller removed: the individual farm routines now
--- handle their own quest selection, target detection, and combat.
--- Keep the separate mastery-farm loop without invoking the removed controller.
+function FarmMethod()
+	local selectedToggle = GetSelectedIndividualFarm()
+	if not selectedToggle then
+		return
+	end
+	local f, V, H
+	local SelectedFarmMethod = ({
+		["Auto Farm Level"] = "Level Farm",
+		["Auto Farm Bones"] = "Farm Bones",
+		["Auto Farm Katakuri"] = "Farm Katakuri",
+		["Auto Farm Tyrant of the Skies"] = "Farm Tyrant of the Skies",
+		["Aura Farm"] = "Aura Farm",
+	})[selectedToggle]
+	f = SelectedFarmMethod
+	local C, J = 9999, 2
+	if f == "Farm Katakuri" then
+		C, V, H = 2275, y, "CakeQuest2"
+	elseif f == "Farm Bones" then
+		C, V, H = 2050, e, "HauntedQuest2"
+	elseif f == "Farm Tyrant of the Skies" then
+		C, V, H = 2575, Y, "TikiQuest3"
+	else
+		V = if f == "Aura Farm" and (DetectMobAura()) then { DetectMobAura() } else V
+	end
+	if Settings["Farm Material"] then
+		V = NameMaterials[Settings["Select Material"]]
+		if not NameWorldMaterials[Settings["Select Material"]][game.PlaceId] then
+			f = NameWorldMaterials[Settings["Select Material"]][getgenv().CheckPlaceId2]
+				or NameWorldMaterials[Settings["Select Material"]][getgenv().CheckPlaceId3]
+				or NameWorldMaterials[Settings["Select Material"]][getgenv().CheckPlaceId]
+			game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer(f)
+			return
+		end
+	end
+	f = V or (GetNameDoubleQuest()) or ""
+	local QuestVisible = AQIsQuestActive()
+	local IsSpecialFarm = SelectedFarmMethod == "Farm Katakuri" or SelectedFarmMethod == "Farm Bones" or SelectedFarmMethod == "Farm Tyrant of the Skies"
+
+	-- Do not stop the farm loop just because Auto Quest is enabled.
+	-- Auto Quest itself already returns while a quest is active; the farm must
+	-- keep running so it can leave the quest giver and attack the quest mobs.
+	-- Without an active quest the farm still targets the method's mobs
+	-- (Level Farm: mob of the current level quest).
+	if SelectedFarmMethod == "Level Farm" and not Settings["Farm Material"] then
+		local okL, info = pcall(GetLevelQuestInfo, t.Data.Level.Value)
+		if okL and type(info) == "table" and info.Mob then
+			f = info.Mob
+		end
+	end
+	-- After accepting a quest, prioritize the mob named by the active quest data.
+	-- This prevents FarmMethod from continuing to target a stale/default mob and
+	-- leaving the character at the quest giver.
+	if not Settings["Farm Material"] and SelectedFarmMethod ~= "Aura Farm" and QuestVisible then
+		local okActive, activeMob = pcall(GetActiveFarmQuestMob)
+		if okActive and type(activeMob) == "string" and activeMob ~= "" then
+			f = activeMob
+		end
+	end
+	do
+		-- Quando a missão já foi aceita, usa o alvo exato da quest antes da lista
+		-- de mobs do método. Isso evita permanecer parado no NPC após aceitar.
+		-- O Farm IGNORA a missão: o alvo vem sempre do método (lista de mobs
+		-- / mob do nível). A missão só é cuidada pelo Auto Quest.
+		-- Depois de aceitar a missão, o alvo passa a ser EXCLUSIVAMENTE o NPC
+		-- definido pela quest ativa. Assim todos os métodos (Level, Bones,
+		-- Katakuri, Tyrant e Aura) seguem a mesma regra e, ao concluir a
+		-- missão, o fluxo volta automaticamente para TakeQuestLevel().
+		if not Settings["Farm Material"] and SelectedFarmMethod == "Farm Tyrant of the Skies" then
+			if CheckNameBoss("Tyrant of the Skies") then
+				V = CheckNameBoss("Tyrant of the Skies")
+				repeat
+					task.wait()
+					sizepart(V)
+					if
+						game:GetService("Players").LocalPlayer.PlayerGui.TransformationHUD.ImageLabel.Visible
+						and (Settings["Auto Finish Train Quest"] or Settings["Auto Finish Train Draco Quest"])
+					then
+						toTarget(V.HumanoidRootPart.CFrame * CFrame.new(7, 20, 0))
+					elseif Settings["Select Weapon"] == "Blox Fruit" then
+						toTarget(V.HumanoidRootPart.CFrame * CFrame.new(-7, 20, 0))
+					else
+						toTarget(V.HumanoidRootPart.CFrame * CFrame.new(7, 20, 0))
+					end
+					UsedualFlock()
+					ClickM1(V)
+				until not IsMobAlive(V) or not Settings["Auto Farm Active"] or not StackFarm
+				return
+			else
+				local V = workspace:FindFirstChild("Map", true)
+					and (workspace.Map:FindFirstChild("TikiOutpost", true))
+					and (workspace.Map.TikiOutpost:FindFirstChild("IslandModel", true))
+				if V then
+					local Y, H, C, J =
+						V:FindFirstChild("Eye1", true),
+						V:FindFirstChild("Eye2", true),
+						V:FindFirstChild("Eye3", true),
+						V:FindFirstChild("Eye4", true)
+					if
+						Y
+						and H
+						and C
+						and J
+						and Y.Transparency == 0
+						and H.Transparency == 0
+						and C.Transparency == 0
+						and J.Transparency == 0
+					then
+						local V = DetectModelDestroyTyrant()
+						if V then
+							if t:DistanceFromCharacter(V.WorldPivot.Position) > 10 then
+								toTarget(V.WorldPivot)
+							elseif CheckItemInventory("Skull Guitar") then
+								if not NameWeapon("Gun") or NameWeapon("Gun") ~= "Skull Guitar" then
+									game:GetService("ReplicatedStorage").Remotes.CommF_
+										:InvokeServer(unpack({ [1] = "LoadItem", [2] = "Skull Guitar" }))
+								else
+									equiptool(NameWeapon("Gun"))
+									getgenv().SpamGunSkullGuitar(V.WorldPivot)
+									-- Remote click only (no screen click).
+									RealClickM1()
+									ClickM1(V, true)
+								end
+							else
+								getgenv().AimPos = V.WorldPivot
+								AutoAllSkill()
+							end
+						end
+						return
+					end
+				end
+			end
+		end
+		if
+			not Settings["Farm Material"]
+			and SelectedFarmMethod == "Farm Katakuri"
+			and not Settings["Ignore Attack Katakuri"]
+		then
+			if CheckNameBoss("Cake Prince") then
+				local V = CheckNameBoss("Cake Prince")
+				repeat
+					task.wait()
+					sizepart(V)
+					if
+						game:GetService("Players").LocalPlayer.PlayerGui.TransformationHUD.ImageLabel.Visible
+						and (Settings["Auto Finish Train Quest"] or Settings["Auto Finish Train Draco Quest"])
+					then
+						toTarget(V.HumanoidRootPart.CFrame * CFrame.new(7, 20, 0))
+					elseif Settings["Select Weapon"] == "Blox Fruit" then
+						toTarget(V.HumanoidRootPart.CFrame * CFrame.new(-7, 20, 0))
+					else
+						toTarget(V.HumanoidRootPart.CFrame * CFrame.new(7, 20, 0))
+					end
+					UsedualFlock()
+					ClickM1(V)
+				until not IsMobAlive(V) or not Settings["Auto Farm Active"] or not StackFarm
+				return
+			else
+				spawn(function()
+					if Settings["Hop Find Katakuri"] then
+						SpecialHop("Cake Prince")
+					end
+				end)
+			end
+		end
+		local V = DetectMob(f)
+		if not V then
+			if typeof(f) == "table" then
+				if #N >= #f then
+					N = {}
+					return
+				end
+				local Y = DetectNameTablePart(f)
+				local H = DetectPartSpawnMob(Y)
+				if H then
+					table.insert(N, Y)
+					repeat
+						task.wait()
+						toTarget(H.CFrame * CFrame.new(0, 60, 0))
+					until (H.Position - t.Character.HumanoidRootPart.Position).Magnitude <= 100
+						or (DetectMob(f))
+						or not Settings["Auto Farm Active"]
+						or not StackFarm
+					wait(1)
+				end
+			else
+				local Y = DetectPartSpawnMob(f, true)
+				if Y then
+					Instance.new("IntValue", Y).Name = "Ignored"
+					repeat
+						task.wait()
+						toTarget(Y.CFrame * CFrame.new(0, 60, 0))
+					until (Y.Position - t.Character.HumanoidRootPart.Position).Magnitude <= 100
+						or (DetectMob(f))
+						or not Settings["Auto Farm Active"]
+						or not StackFarm
+					wait(1)
+				else
+					DeleteIgnoredMobSpawn()
+				end
+			end
+		else
+			repeat
+				task.wait()
+				sizepart(V)
+				BringMob(V)
+				UsedualFlock()
+				ClickM1(V)
+				if
+					game:GetService("Players").LocalPlayer.PlayerGui.TransformationHUD.ImageLabel.Visible
+					and (Settings["Auto Finish Train Quest"] or Settings["Auto Finish Train Draco Quest"])
+				then
+					toTarget(V.HumanoidRootPart.CFrame * CFrame.new(7, 20, 0))
+				elseif Settings["Select Weapon"] == "Blox Fruit" then
+					toTarget(V.HumanoidRootPart.CFrame * CFrame.new(-7, getgenv().YPosFruit, 0))
+				else
+					toTarget(V.HumanoidRootPart.CFrame * CFrame.new(7, 20, 0))
+				end
+			until not IsMobAlive(V) or not Settings["Auto Farm Active"] or not StackFarm
+			if getgenv().QuestTrainer and getgenv().QuestTrainer.CountKillMob then
+				getgenv().QuestTrainer.CountKillMob = getgenv().QuestTrainer.CountKillMob + 1
+			end
+		end
+	end
+end
+-- Auto Quest: ONLY accepts the quest of the selected farm. Never attacks.
+-- Only the quest-selection logic lives here; the individual Auto Farm functions
+-- remain untouched.
+AutoQuestInfo = {
+    ["Auto Farm Bones"] = { 2050, "HauntedQuest2", 2 },
+    ["Auto Farm Katakuri"] = { 2275, "CakeQuest2", 2 },
+    ["Auto Farm Tyrant of the Skies"] = { 2575, "TikiQuest3", 2 },
+}
+
+-- Detect whether a quest is already active. This belongs to Auto Quest only.
+function AQIsQuestActive()
+    local has = false
+    pcall(function()
+        has = DontQuest() == true
+    end)
+    local shown = false
+    pcall(function()
+        local main = t.PlayerGui and t.PlayerGui:FindFirstChild("Main")
+        local q = main and main:FindFirstChild("Quest")
+        shown = q ~= nil and q.Visible == true
+    end)
+    return has or shown
+end
+
 spawn(function()
-    while task.wait() do
+    while task.wait(0.3) do
         pcall(function()
+            if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
+                return
+            end
             if Settings["Farm Mastery"] and Settings["Start Farm"] then
-                HauntedCastleMasteryFarm()
+                return
+            end
+
+            local selectedFarm = GetSelectedIndividualFarm()
+            if not selectedFarm then
+                return
+            end
+
+            -- Never interfere with an already active quest.
+            if AQIsQuestActive() then
+                return
+            end
+
+            -- Level uses the existing level-quest system.
+            if selectedFarm == "Auto Farm Level" then
+                TakeQuestLevel()
+                return
+            end
+
+            -- These farms use their own quest identifiers and the existing
+            -- quest-position logic from the source.
+            local info = AutoQuestInfo[selectedFarm]
+            if info and t.Data.Level.Value >= info[1] then
+                QuestBoneAndkatakuri(info[2], info[3])
             end
         end)
     end
 end)
 
+local function HauntedCastleMasteryFarm()
+	if not Settings["Farm Mastery"] or not Settings["Start Farm"] then
+		return
+	end
+	local character = t.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local masteryMobs = {
+		"Reborn Skeleton",
+		"Demonic Soul",
+		"Living Zombie",
+		"Possessed Mummy",
+		"Posessed Mummy",
+	}
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then return end
+	local mob = DetectMob(masteryMobs)
+	if mob and mob:FindFirstChild("HumanoidRootPart") then
+		sizepart(mob)
+		pcall(BringMob, mob)
+		-- Antes o personagem não se aproximava do mob e ficava parado.
+		if Settings["Select Method Farm Mastery"] == "Blox Fruit" then
+			toTarget(mob.HumanoidRootPart.CFrame * CFrame.new(-7, getgenv().YPosFruit or 20, 0))
+		else
+			toTarget(mob.HumanoidRootPart.CFrame * CFrame.new(7, 20, 0))
+		end
+		FarmMastery(mob)
+		ClickM1(mob)
+		return
+	end
+	local spawnPart = DetectPartSpawnMob(DetectNameTablePart(masteryMobs))
+	if spawnPart then
+		toTarget(spawnPart.CFrame * CFrame.new(0, 60, 0))
+	else
+		toTarget(CFrame.new(-9509.34961, 142.130661, 5535.16309))
+	end
+end
+
+spawn(function()
+	while task.wait() do
+		pcall(function()
+			if Settings["Farm Mastery"] and Settings["Start Farm"] then
+				HauntedCastleMasteryFarm()
+			elseif GetSelectedIndividualFarm() and StackFarm then
+				FarmMethod()
+			end
+		end)
+	end
+end)
 stackFarmMain = Main.CreatePage({ Page_Name = "Stack Farming", Page_Title = "Stack Farming" })
 AutoWorldSection = stackFarmMain.CreateSection("Auto World")
 AutoWorldSection.CreateToggle(
