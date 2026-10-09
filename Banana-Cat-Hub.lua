@@ -6903,19 +6903,10 @@ local function GetSelectedIndividualFarm()
 end
 
 local function SetIndividualFarm(name, enabled)
-	-- Keep each toggle's saved state independent; do not silently turn off other toggles.
+	-- Each farm toggle owns only its own setting; do not silently switch off the others.
 	SaveSettings(name, enabled)
-	local anyFarmEnabled = false
-	for _, farmName in ipairs(FarmToggleNames) do
-		if Settings[farmName] then
-			anyFarmEnabled = true
-			break
-		end
-	end
-	SaveSettings("Auto Farm Active", anyFarmEnabled)
-	-- The character can only follow one movement/combat routine at a time.
-	-- GetSelectedIndividualFarm chooses the first enabled farm as the active routine.
-	-- Quests remain controlled by the Auto Quest toggle.
+	SaveSettings("Auto Farm Active", GetSelectedIndividualFarm() ~= nil)
+	-- Auto Quest handles quest NPC interaction; farm toggles handle target selection and combat.
 end
 
 SettingAutoFarmSection.CreateSlider(
@@ -7758,20 +7749,9 @@ function FarmMethod()
 	local QuestVisible = AQIsQuestActive()
 	local IsSpecialFarm = SelectedFarmMethod == "Farm Katakuri" or SelectedFarmMethod == "Farm Bones" or SelectedFarmMethod == "Farm Tyrant of the Skies"
 
-	-- Se a missão atual já terminou, não mantém o alvo antigo.
-	-- Aguarda a interface da quest fechar e o próximo ciclo assume a nova quest.
-	-- Auto Quest owns the character only while there is no active quest
-	-- (or the current one is finished). Otherwise both loops would fight
-	-- over the teleport and the character stays stuck at the NPC.
-	if
-		Settings["Auto Quest [Katakuri/Bone/Tyrant]"]
-		and SelectedFarmMethod ~= "Aura Farm"
-		and not Settings["Farm Material"]
-		and (SelectedFarmMethod == "Level Farm" or t.Data.Level.Value >= C)
-		and (not QuestVisible)
-	then
-		return
-	end
+	-- Do not stop the farm loop just because Auto Quest is enabled.
+	-- Auto Quest itself already returns while a quest is active; the farm must
+	-- keep running so it can leave the quest giver and attack the quest mobs.
 	-- Without an active quest the farm still targets the method's mobs
 	-- (Level Farm: mob of the current level quest).
 	if SelectedFarmMethod == "Level Farm" and not Settings["Farm Material"] then
