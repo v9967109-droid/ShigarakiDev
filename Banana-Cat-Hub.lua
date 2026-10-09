@@ -6903,18 +6903,19 @@ local function GetSelectedIndividualFarm()
 end
 
 local function SetIndividualFarm(name, enabled)
+	-- Keep each toggle's saved state independent; do not silently turn off other toggles.
 	SaveSettings(name, enabled)
-	if enabled then
-		for _, other in ipairs(FarmToggleNames) do
-			if other ~= name then
-				SaveSettings(other, false)
-			end
+	local anyFarmEnabled = false
+	for _, farmName in ipairs(FarmToggleNames) do
+		if Settings[farmName] then
+			anyFarmEnabled = true
+			break
 		end
-		SaveSettings("Auto Farm Active", true)
-	else
-		SaveSettings("Auto Farm Active", GetSelectedIndividualFarm() ~= nil)
 	end
-	-- Farm toggles only kill mobs. Quests are handled exclusively by the Auto Quest toggle.
+	SaveSettings("Auto Farm Active", anyFarmEnabled)
+	-- The character can only follow one movement/combat routine at a time.
+	-- GetSelectedIndividualFarm chooses the first enabled farm as the active routine.
+	-- Quests remain controlled by the Auto Quest toggle.
 end
 
 SettingAutoFarmSection.CreateSlider(
