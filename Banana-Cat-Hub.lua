@@ -6903,18 +6903,10 @@ local function GetSelectedIndividualFarm()
 end
 
 local function SetIndividualFarm(name, enabled)
+	-- Each farm toggle owns only its own setting; do not silently switch off the others.
 	SaveSettings(name, enabled)
-	if enabled then
-		for _, other in ipairs(FarmToggleNames) do
-			if other ~= name then
-				SaveSettings(other, false)
-			end
-		end
-		SaveSettings("Auto Farm Active", true)
-	else
-		SaveSettings("Auto Farm Active", GetSelectedIndividualFarm() ~= nil)
-	end
-	-- Farm toggles only kill mobs. Quests are handled exclusively by the Auto Quest toggle.
+	SaveSettings("Auto Farm Active", GetSelectedIndividualFarm() ~= nil)
+	-- Auto Quest handles quest NPC interaction; farm toggles handle target selection and combat.
 end
 
 SettingAutoFarmSection.CreateSlider(
@@ -7663,8 +7655,9 @@ local N = {}
 -- atualizado no mesmo instante em que a interface da missão aparece, então
 -- usamos também os dados da própria quest como fallback.
 local function GetActiveFarmQuestMob(QuestName, QuestId)
-	-- Prefer the local player's GuideModule quest data. The module is stored in
-	-- local Z in this source; t is the LocalPlayer, not the quest module.
+	-- Sempre prioriza a tarefa realmente aceita pelo jogador.
+	-- Isso impede que Bones/Katakuri/Tyrant/Aura ataquem um NPC
+	-- diferente do objetivo atual da quest.
 	local ok, QuestData = pcall(function()
 		return Z and Z.Data and Z.Data.QuestData
 	end)
@@ -7756,20 +7749,9 @@ function FarmMethod()
 	local QuestVisible = AQIsQuestActive()
 	local IsSpecialFarm = SelectedFarmMethod == "Farm Katakuri" or SelectedFarmMethod == "Farm Bones" or SelectedFarmMethod == "Farm Tyrant of the Skies"
 
-	-- Se a missão atual já terminou, não mantém o alvo antigo.
-	-- Aguarda a interface da quest fechar e o próximo ciclo assume a nova quest.
-	-- Auto Quest owns the character only while there is no active quest
-	-- (or the current one is finished). Otherwise both loops would fight
-	-- over the teleport and the character stays stuck at the NPC.
-	if
-		Settings["Auto Quest [Katakuri/Bone/Tyrant]"]
-		and SelectedFarmMethod ~= "Aura Farm"
-		and not Settings["Farm Material"]
-		and (SelectedFarmMethod == "Level Farm" or t.Data.Level.Value >= C)
-		and (not QuestVisible)
-	then
-		return
-	end
+	-- Do not stop the farm loop just because Auto Quest is enabled.
+	-- Auto Quest itself already returns while a quest is active; the farm must
+	-- keep running so it can leave the quest giver and attack the quest mobs.
 	-- Without an active quest the farm still targets the method's mobs
 	-- (Level Farm: mob of the current level quest).
 	if SelectedFarmMethod == "Level Farm" and not Settings["Farm Material"] then
@@ -7963,10 +7945,6 @@ AutoQuestInfo = {
 }
 
 -- Detect whether a quest is already active. This belongs to Auto Quest only.
--- Keep a short latch on an active quest so transient UI/Data refreshes do not
--- send the player back to the quest giver before the current objective ends.
-local AQActiveLatchUntil = 0
-local AQLastConfirmedActive = 0
 function AQIsQuestActive()
     local has = false
     pcall(function()
@@ -7974,26 +7952,11 @@ function AQIsQuestActive()
     end)
     local shown = false
     pcall(function()
-        local playerGui = t and t:FindFirstChild("PlayerGui")
-        local main = playerGui and playerGui:FindFirstChild("Main")
+        local main = t.PlayerGui and t.PlayerGui:FindFirstChild("Main")
         local q = main and main:FindFirstChild("Quest")
         shown = q ~= nil and q.Visible == true
     end)
-
-    local active = has or shown
-    local now = tick()
-    if active then
-        AQLastConfirmedActive = now
-        AQActiveLatchUntil = now + 2.5
-        return true
-    end
-
-    -- If an active quest was just seen, ignore brief false readings while the
-    -- quest GUI and GuideModule update. Do not latch forever after completion.
-    if now < AQActiveLatchUntil and AQLastConfirmedActive > 0 then
-        return true
-    end
-    return false
+    return has or shown
 end
 
 spawn(function()
