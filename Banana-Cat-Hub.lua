@@ -7982,9 +7982,16 @@ function AQIsQuestActive()
         shown = q ~= nil and q.Visible == true
     end)
     if not (has or shown) then
+        -- Histerese: a interface/os dados da missão podem piscar por 1 frame ao matar um mob. Só conta como
+        -- "sem missão" depois de 3s seguidos sem nenhum sinal de missão (antes qualquer piscada fazia o
+        -- script voltar ao NPC e pegar a missão de novo antes de completar).
+        if tick() - (getgenv().__AQLastRaw or 0) < 3 then
+            return true
+        end
         getgenv().__AQDoneSince, getgenv().__AQSeenPositive = nil, nil
         return false
     end
+    getgenv().__AQLastRaw = tick()
     -- Missão concluída: todas as tarefas zeradas por 1,5s. Só vale se, nesta missão, já vimos uma tarefa
     -- positiva (assim um "tudo zero" logo ao aceitar nunca é tomado por missão concluída).
     local ok, Task = pcall(function()
@@ -8055,7 +8062,7 @@ end
 
 do
     local MyGen = getgenv().__AQGen
-    local State = { fails = 0, nextTry = 0, atNpcSince = nil, busy = false }
+    local State = { fails = 0, nextTry = 0, atNpcSince = nil, busy = false, graceUntil = 0 }
 
     -- Retorna nome da missão, id e posição do NPC da missão do farm selecionado.
     local function QuestTarget(selectedFarm)
@@ -8110,6 +8117,11 @@ do
             getgenv().__AQGiveUp = nil
             return
         end
+        -- Folga: nos 5s seguintes a uma missão aceita ela não pode estar concluída; se a leitura falhou,
+        -- é oscilação. Não vai ao NPC nem faz o farm esperar.
+        if tick() < State.graceUntil then
+            return
+        end
         if getgenv().__AQGiveUp and tick() < getgenv().__AQGiveUp then
             return
         end
@@ -8131,6 +8143,12 @@ do
         if tick() - State.atNpcSince < 0.8 then
             return
         end
+        -- Última conferência: se a missão voltou a aparecer, NÃO pede de novo (pedir com missão ativa
+        -- reinicia o progresso).
+        if AQIsQuestActive() then
+            State.atNpcSince = nil
+            return
+        end
         -- inicia a missão uma vez e confere
         State.busy = true
         pcall(function()
@@ -8147,6 +8165,7 @@ do
         if opened then
             State.fails = 0
             State.nextTry = tick() + 1
+            State.graceUntil = tick() + 5
             getgenv().__AQGiveUp = nil
             -- Solta o personagem do NPC: cancela o movimento até ele para o farm assumir já.
             pcall(function()
