@@ -7749,6 +7749,14 @@ function FarmMethod()
 	local QuestVisible = AQIsQuestActive()
 	local IsSpecialFarm = SelectedFarmMethod == "Farm Katakuri" or SelectedFarmMethod == "Farm Bones" or SelectedFarmMethod == "Farm Tyrant of the Skies"
 
+	-- Com Auto Quest ligado, aguarda a missão ser aceita antes de iniciar o combate.
+	-- O loop Auto Quest cuida de ir ao NPC; o farm só atua quando a quest está ativa.
+	if Settings["Auto Quest [Katakuri/Bone/Tyrant]"]
+		and (selectedToggle == "Auto Farm Level" or IsSpecialFarm)
+		and not QuestVisible then
+		return
+	end
+
 	-- Do not stop the farm loop just because Auto Quest is enabled.
 	-- Auto Quest itself already returns while a quest is active; the farm must
 	-- keep running so it can leave the quest giver and attack the quest mobs.
@@ -7946,9 +7954,21 @@ AutoQuestInfo = {
 
 -- Detect whether a quest is already active. This belongs to Auto Quest only.
 function AQIsQuestActive()
-    local has = false
+    -- GuideModule pode manter QuestData mesmo depois de a missão terminar.
+    -- Só considera ativa se houver uma tarefa real pendente ou a interface visível.
+    local hasTask = false
     pcall(function()
-        has = DontQuest() == true
+        local questData = Z and Z.Data and Z.Data.QuestData
+        local tasks = questData and questData.Task
+        if type(tasks) == "table" then
+            for _, progress in pairs(tasks) do
+                local remaining = tonumber(progress)
+                if remaining == nil or remaining > 0 then
+                    hasTask = true
+                    break
+                end
+            end
+        end
     end)
     local shown = false
     pcall(function()
@@ -7956,7 +7976,7 @@ function AQIsQuestActive()
         local q = main and main:FindFirstChild("Quest")
         shown = q ~= nil and q.Visible == true
     end)
-    return has or shown
+    return hasTask or shown
 end
 
 spawn(function()
