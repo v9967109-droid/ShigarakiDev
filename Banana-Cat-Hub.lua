@@ -7954,8 +7954,13 @@ AutoQuestInfo = {
 
 -- Detect whether a quest is already active. This belongs to Auto Quest only.
 function AQIsQuestActive()
-    -- GuideModule pode manter QuestData mesmo depois de a missão terminar.
-    -- Só considera ativa se houver uma tarefa real pendente ou a interface visível.
+    -- O próprio DontQuest() é o sinal principal usado pelo restante da source.
+    -- Incluí-lo aqui evita que o Auto Quest volte ao NPC quando a QuestData já
+    -- foi criada, mas a tarefa/GUI ainda não atualizou neste frame.
+    local hasQuestData = false
+    pcall(function()
+        hasQuestData = DontQuest() == true
+    end)
     local hasTask = false
     pcall(function()
         local questData = Z and Z.Data and Z.Data.QuestData
@@ -7976,7 +7981,7 @@ function AQIsQuestActive()
         local q = main and main:FindFirstChild("Quest")
         shown = q ~= nil and q.Visible == true
     end)
-    return hasTask or shown
+    return hasQuestData or hasTask or shown
 end
 
 spawn(function()
