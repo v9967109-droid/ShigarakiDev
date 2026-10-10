@@ -18204,23 +18204,24 @@ function GetOtherPlayerRaces()
 	return g
 end
 function CheckMultiPlayerNearDoor()
-	local g, R, m = next, game.Workspace.Characters:GetChildren()
-	local l = 0
-	for S, I in g, R, m do
-		S = GetOtherPlayerRaces()[I.Name]
-		l = if S
-				and (DetectNameAbility(I.HumanoidRootPart))
-				and (
-						I.HumanoidRootPart.Position
-						- game:GetService("Workspace").Map["Temple of Time"][S .. "Corridor"].Door.Door.RightDoor.Union.Position
-					).Magnitude
-					< 100
-			then l + 1
-			else l
+	local workspaceService = game:GetService("Workspace")
+	local temple = workspaceService.Map and workspaceService.Map:FindFirstChild("Temple of Time")
+	if not temple then return false end
+	local races = GetOtherPlayerRaces()
+	local count = 0
+	for _, character in ipairs(workspaceService.Characters:GetChildren()) do
+		local root = character:FindFirstChild("HumanoidRootPart")
+		local race = races[character.Name]
+		local corridor = race and temple:FindFirstChild(race .. "Corridor")
+		local door = corridor and corridor:FindFirstChild("Door")
+		local innerDoor = door and door:FindFirstChild("Door")
+		local rightDoor = innerDoor and innerDoor:FindFirstChild("RightDoor")
+		local union = rightDoor and rightDoor:FindFirstChild("Union")
+		if root and union and DetectNameAbility(root) and (root.Position - union.Position).Magnitude <= 1500 then
+			count += 1
+		end
 	end
-	if l >= 2 then
-		return true
-	end
+	return count >= 2
 end
 function CheckMultiAccount()
 	local g = {}
@@ -18679,19 +18680,24 @@ spawn(function()
 	end
 end)
 spawn(function()
+	local resetForThisOpening = false
 	while task.wait(0.1) do
 		if Settings["Auto Trial"] then
-			local g, R = pcall(function()
-				AutoTrialV4()
-			end)
+			pcall(function() AutoTrialV4() end)
 		end
 		pcall(function()
-			if
-				workspace.Map:FindFirstChild("Temple of Time")
-				and workspace.Map["Temple of Time"].FFABorder.Forcefield.Transparency ~= 1
-			then
-				if Settings["Auto Reset Character"] then
-					t.Character.Humanoid.Health = 0
+			local temple = workspace.Map and workspace.Map:FindFirstChild("Temple of Time")
+			local border = temple and temple:FindFirstChild("FFABorder")
+			local forcefield = border and border:FindFirstChild("Forcefield")
+			local isOpen = forcefield and forcefield.Transparency ~= 1
+			if not isOpen then
+				resetForThisOpening = false
+			elseif Settings["Auto Reset Character"] and not resetForThisOpening then
+				local character = t.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if humanoid and humanoid.Health > 0 then
+					resetForThisOpening = true
+					humanoid.Health = 0
 				end
 			end
 		end)
