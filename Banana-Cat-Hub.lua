@@ -8335,7 +8335,10 @@ do
         if tick() < State.nextTry then
             return
         end
-        -- vai até o NPC
+        -- Vai até o NPC sem reiniciar o Tween a cada ciclo de 0,25s.
+        -- Chamadas repetidas de toTarget cancelam/recriam o movimento e causam
+        -- o efeito de andar-parar-andar. Reenvia apenas se o personagem ainda
+        -- estiver longe e já tiver passado o intervalo de segurança.
         if (npcPos - root.Position).Magnitude > 8 then
             State.atNpcSince = nil
             if not State.loggedTrip then
@@ -8347,9 +8350,13 @@ do
                     tostring(getgenv().__AQLastTask or "?")
                 ))
             end
-            toTarget(CFrame.new(npcPos) * CFrame.new(0, 4, 2), true)
+            if not State.nextNpcMove or tick() >= State.nextNpcMove then
+                State.nextNpcMove = tick() + 1.5
+                toTarget(CFrame.new(npcPos) * CFrame.new(0, 4, 2), true)
+            end
             return
         end
+        State.nextNpcMove = nil
         State.atNpcSince = State.atNpcSince or tick()
         if tick() - State.atNpcSince < 0.8 then
             return
