@@ -6942,9 +6942,8 @@ SettingAutoFarmSection.CreateToggle(
 -- Auto Quest começa ligado sempre que o script é executado.
 Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = true
 SettingAutoFarmSection.CreateToggle(
-	{ Title = "Auto Quest", Desc = "Starts enabled; turns off 10 seconds after accepting a quest, then turns on again after 45 seconds.", Default = true },
+	{ Title = "Auto Quest", Desc = "Starts enabled; automatic cycle: 10 seconds on, 45 seconds off.", Default = true },
 	function(V)
-		-- Alterações automáticas sincronizam a interface sem cancelar o próprio ciclo.
 		if not getgenv().__AQAutoSyncing then
 			getgenv().__AQCycleToken = (getgenv().__AQCycleToken or 0) + 1
 		end
@@ -8114,59 +8113,40 @@ getgenv().__AQGen = (getgenv().__AQGen or 0) + 1
 getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 
 -- O farm só espera quando o Auto Quest está ligado, tem alvo e ainda não há missão ativa.
+-- Auto Quest: atualiza a toggle pela API usada pelo restante da interface.
+-- O pcall impede que uma diferença na API da UI interrompa a execução do hub.
 local function AQSetAutoQuestEnabled(enabled)
-    -- Atualiza estado interno e tenta atualizar o controle real da interface.
-    Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = enabled
-    getgenv().__AQAutoSyncing = true
-    local changed = false
-    local opt = Options and Options["Auto Quest"]
-    local control = opt and opt.FunctionCreate
-    if control then
-        if type(control.SetValue) == "function" then
-            changed = pcall(function() control:SetValue(enabled) end)
-            if not changed then
-                changed = pcall(function() control.SetValue(enabled) end)
-            end
-        end
-        if not changed and type(control.SetStage) == "function" then
-            changed = pcall(function() control:SetStage(enabled) end)
-            if not changed then
-                changed = pcall(function() control.SetStage(enabled) end)
-            end
-        end
-    end
-    -- Some UI wrappers expose the option itself as the setter.
-    if not changed and opt then
-        if type(opt.SetValue) == "function" then
-            changed = pcall(function() opt:SetValue(enabled) end)
-        elseif type(opt.SetStage) == "function" then
-            changed = pcall(function() opt:SetStage(enabled) end)
-        end
-    end
-    getgenv().__AQAutoSyncing = false
-    pcall(function()
-        if not isfolder(FolderName) then makefolder(FolderName) end
-        writefile(FolderName .. "/" .. SaveFileName, HttpService:JSONEncode(Settings))
-    end)
-    return changed
+	getgenv().__AQAutoSyncing = true
+	Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = enabled
+	local ok = pcall(function()
+		local option = Options and Options["Auto Quest"]
+		assert(option and option.FunctionCreate, "Auto Quest UI option not ready")
+		assert(option.FunctionCreate.SetValue, "Auto Quest SetValue unavailable")
+		option.FunctionCreate:SetValue(enabled)
+	end)
+	getgenv().__AQAutoSyncing = false
+	-- Persist the same state as the visible toggle.
+	pcall(function()
+		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", enabled)
+	end)
+	return ok
 end
 
--- Ciclo permanente da toggle: 10 segundos ligada, 45 segundos desligada.
--- Usa um token próprio para evitar controladores duplicados se o script for reexecutado.
+-- Exactly one cycle controller; on for 10 seconds, off for 45 seconds.
 getgenv().__AQCycleRunnerToken = (getgenv().__AQCycleRunnerToken or 0) + 1
 local AQCycleRunnerToken = getgenv().__AQCycleRunnerToken
 task.spawn(function()
-    -- Dá tempo para a biblioteca registrar o controle da interface.
-    task.wait(2)
-    AQSetAutoQuestEnabled(true)
-    while getgenv().__AQCycleRunnerToken == AQCycleRunnerToken do
-        task.wait(10)
-        if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
-        AQSetAutoQuestEnabled(false)
-        task.wait(45)
-        if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
-        AQSetAutoQuestEnabled(true)
-    end
+	task.wait(2) -- allow the UI library to finish registering Options
+	if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then return end
+	AQSetAutoQuestEnabled(true)
+	while getgenv().__AQCycleRunnerToken == AQCycleRunnerToken do
+		task.wait(10)
+		if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
+		AQSetAutoQuestEnabled(false)
+		task.wait(45)
+		if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
+		AQSetAutoQuestEnabled(true)
+	end
 end)
 
 function AQNeedsQuest()
