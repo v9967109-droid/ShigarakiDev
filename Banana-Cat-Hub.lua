@@ -6939,17 +6939,49 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Hop Find Katakuri", o)
 	end
 )
--- Auto Quest começa ligado sempre que o script é executado.
-Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = true
 SettingAutoFarmSection.CreateToggle(
-	{ Title = "Auto Quest", Desc = "Starts enabled; automatic cycle: 10 seconds on, 45 seconds off.", Default = true },
+	{ Title = "Auto Quest", Desc = "Only accepts the quest of the selected farm (Level/Bones/Katakuri/Tyrant).", Default = true },
 	function(V)
-		if not getgenv().__AQAutoSyncing then
-			getgenv().__AQCycleToken = (getgenv().__AQCycleToken or 0) + 1
-		end
+		if getgenv().__AQCycleSync then return end
 		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
 	end
 )
+-- Ciclo solicitado: Auto Quest ligado por 10s e desligado por 45s, repetidamente.
+-- Mantém a mudança sincronizada com o toggle real da interface; não altera FarmMethod nem outras farms.
+do
+	getgenv().__AQToggleCycleGeneration = (getgenv().__AQToggleCycleGeneration or 0) + 1
+	local cycleGeneration = getgenv().__AQToggleCycleGeneration
+	local toggleKey = "Auto Quest [Katakuri/Bone/Tyrant]"
+	local function SetAutoQuestToggle(value)
+		getgenv().__AQCycleSync = true
+		pcall(function()
+			SaveSettings(toggleKey, value)
+		end)
+		pcall(function()
+			local option = Options and Options["Auto Quest"]
+			local control = option and option.FunctionCreate
+			if control and control.SetValue then
+				control:SetValue(value)
+			end
+		end)
+		task.delay(0.25, function()
+			if getgenv().__AQToggleCycleGeneration == cycleGeneration then
+				getgenv().__AQCycleSync = false
+			end
+		end)
+	end
+	task.spawn(function()
+		SetAutoQuestToggle(true)
+		while getgenv().__AQToggleCycleGeneration == cycleGeneration do
+			task.wait(10)
+			if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+			SetAutoQuestToggle(false)
+			task.wait(45)
+			if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+			SetAutoQuestToggle(true)
+		end
+	end)
+end
 -- Mantém os toggles "Farm Mastery" e "Start Farm" visualmente iguais ao estado real.
 function SyncMasteryToggle(title, v)
 	if getgenv().__MasterySyncing then
@@ -8113,42 +8145,6 @@ getgenv().__AQGen = (getgenv().__AQGen or 0) + 1
 getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 
 -- O farm só espera quando o Auto Quest está ligado, tem alvo e ainda não há missão ativa.
--- Auto Quest: atualiza a toggle pela API usada pelo restante da interface.
--- O pcall impede que uma diferença na API da UI interrompa a execução do hub.
-local function AQSetAutoQuestEnabled(enabled)
-	getgenv().__AQAutoSyncing = true
-	Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = enabled
-	local ok = pcall(function()
-		local option = Options and Options["Auto Quest"]
-		assert(option and option.FunctionCreate, "Auto Quest UI option not ready")
-		assert(option.FunctionCreate.SetValue, "Auto Quest SetValue unavailable")
-		option.FunctionCreate:SetValue(enabled)
-	end)
-	getgenv().__AQAutoSyncing = false
-	-- Persist the same state as the visible toggle.
-	pcall(function()
-		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", enabled)
-	end)
-	return ok
-end
-
--- Exactly one cycle controller; on for 10 seconds, off for 45 seconds.
-getgenv().__AQCycleRunnerToken = (getgenv().__AQCycleRunnerToken or 0) + 1
-local AQCycleRunnerToken = getgenv().__AQCycleRunnerToken
-task.spawn(function()
-	task.wait(2) -- allow the UI library to finish registering Options
-	if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then return end
-	AQSetAutoQuestEnabled(true)
-	while getgenv().__AQCycleRunnerToken == AQCycleRunnerToken do
-		task.wait(10)
-		if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
-		AQSetAutoQuestEnabled(false)
-		task.wait(45)
-		if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
-		AQSetAutoQuestEnabled(true)
-	end
-end)
-
 function AQNeedsQuest()
     if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
         return false
