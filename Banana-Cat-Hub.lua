@@ -6939,117 +6939,112 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Hop Find Katakuri", o)
 	end
 )
--- Auto Quest único: mantém o comportamento original e aplica ciclo de 10s/65s.
 SettingAutoFarmSection.CreateToggle(
-    { Title = "Auto Quest", Desc = "Pega primeiro a missão do farm selecionado. Ciclo: 10s ligado e 65s de espera.", Default = Settings["Auto Quest"] or Settings["Auto Quest [Katakuri/Bone/Tyrant]"] or false },
-    function(v)
-        SaveSettings("Auto Quest", v)
-        SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", v)
-        if not v then
-            getgenv().__AQCycleQuestActive = getgenv().__AQCycleQuestActive or {}
-            for _, farm in ipairs({"Auto Farm Level", "Auto Farm Bones", "Auto Farm Katakuri", "Auto Farm Tyrant of the Skies"}) do
-                getgenv().__AQCycleQuestActive[farm] = false
-            end
-        end
-    end
+	{ Title = "Auto Quest", Desc = "Only accepts the quest of the selected farm (Level/Bones/Katakuri/Tyrant).", Default = true },
+	function(V)
+		if getgenv().__AQCycleSync then return end
+		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
+	end
 )
-
--- Ciclo único para o farm selecionado; o temporizador só avança perto do NPC (50 studs).
+-- Ciclo Auto Quest: mantém ligado até completar 10s e chegar a até 50 studs do NPC.
+-- Após desligar, aguarda 5s para registrar a missão; se ainda não estiver perto do NPC,
+-- aguarda mais 5s antes de iniciar o intervalo de 75s. Fora da ilha, o ciclo pausa.
 do
-    getgenv().__AQToggleCycleGeneration = (getgenv().__AQToggleCycleGeneration or 0) + 1
-    local generation = getgenv().__AQToggleCycleGeneration
-    local farmConfig = {
-        ["Auto Farm Level"] = { off = 65 },
-        ["Auto Farm Bones"] = { off = 65 },
-        ["Auto Farm Katakuri"] = { off = 65 },
-        ["Auto Farm Tyrant of the Skies"] = { off = 65 },
-    }
-    local states = {}
-    for farm in pairs(farmConfig) do
-        states[farm] = { phase = "wait_npc", deadline = nil, confirmAt = nil }
-    end
-    getgenv().__AQCycleQuestActive = getgenv().__AQCycleQuestActive or {}
-
-    local function SetCycleActive(farm, value)
-        if farm then getgenv().__AQCycleQuestActive[farm] = value end
-        SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", value)
-    end
-    local function GetNPCPosition(farm)
-        if Settings["Farm Material"] then return nil end
-        if farm == "Auto Farm Level" then
-            local pos
-            pcall(function()
-                local info = GetLevelQuestInfo(t.Data.Level.Value)
-                if info and info.Pos then pos = typeof(info.Pos) == "CFrame" and info.Pos.Position or info.Pos end
-            end)
-            return pos
-        end
-        local info = AutoQuestInfo and AutoQuestInfo[farm]
-        local points = getgenv().questpoint
-        local cf = info and points and points[info[2]]
-        return cf and cf.Position or nil
-    end
-    local function DistToNPC(farm)
-        local pos = GetNPCPosition(farm)
-        local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
-        if not pos or not root then return math.huge end
-        return (root.Position - pos).Magnitude
-    end
-    task.spawn(function()
-        while getgenv().__AQToggleCycleGeneration == generation do
-            local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm() or nil
-            local state = selected and states[selected]
-            if not Settings["Auto Quest"] or not selected or not state or Settings["Farm Material"] then
-                if selected then SetCycleActive(selected, false) end
-                for farm, st in pairs(states) do
-                    st.phase, st.deadline, st.confirmAt = "wait_npc", nil, nil
-                    getgenv().__AQCycleQuestActive[farm] = false
-                end
-                task.wait(0.5)
-            else
-                local distance = DistToNPC(selected)
-                if distance > 2500 then
-                    -- Pause fora da área; não consome o ciclo durante o deslocamento.
-                    SetCycleActive(selected, true)
-                    task.wait(0.5)
-                elseif state.phase == "wait_npc" then
-                    SetCycleActive(selected, true)
-                    if distance <= 50 then
-                        state.phase = "count_on"
-                        state.deadline = tick() + 10
-                    end
-                elseif state.phase == "count_on" then
-                    SetCycleActive(selected, true)
-                    if tick() >= state.deadline then state.phase = "wait_return_npc" end
-                elseif state.phase == "wait_return_npc" then
-                    SetCycleActive(selected, true)
-                    if distance <= 50 then
-                        SetCycleActive(selected, false)
-                        state.phase = "confirm_off"
-                        state.confirmAt = tick() + 5
-                    end
-                elseif state.phase == "confirm_off" then
-                    SetCycleActive(selected, false)
-                    if tick() >= state.confirmAt then
-                        if distance <= 50 then
-                            state.phase = "off_timer"
-                            state.deadline = tick() + 65
-                        else
-                            state.confirmAt = tick() + 5
-                        end
-                    end
-                elseif state.phase == "off_timer" then
-                    SetCycleActive(selected, false)
-                    if tick() >= state.deadline then
-                        state.phase, state.deadline, state.confirmAt = "wait_npc", nil, nil
-                    end
-                end
-                task.wait(0.25)
-            end
-        end
-    end)
+	getgenv().__AQToggleCycleGeneration = (getgenv().__AQToggleCycleGeneration or 0) + 1
+	local cycleGeneration = getgenv().__AQToggleCycleGeneration
+	local toggleKey = "Auto Quest [Katakuri/Bone/Tyrant]"
+	local function SetAutoQuestToggle(value)
+		getgenv().__AQCycleSync = true
+		pcall(function() SaveSettings(toggleKey, value) end)
+		pcall(function()
+			local option = Options and Options["Auto Quest"]
+			local control = option and option.FunctionCreate
+			if control and control.SetValue then control:SetValue(value) end
+		end)
+		task.delay(0.25, function()
+			if getgenv().__AQToggleCycleGeneration == cycleGeneration then
+				getgenv().__AQCycleSync = false
+			end
+		end)
+	end
+	local function GetSelectedQuestNPCPosition()
+		local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
+		if not selected or selected == "Aura Farm" or Settings["Farm Material"] then return nil end
+		local targetPosition
+		if selected == "Auto Farm Level" then
+			pcall(function()
+				local info = GetLevelQuestInfo(t.Data.Level.Value)
+				if info and info.Pos then
+					targetPosition = typeof(info.Pos) == "CFrame" and info.Pos.Position or info.Pos
+				end
+			end)
+		else
+			local info = AutoQuestInfo and AutoQuestInfo[selected]
+			local points = getgenv().questpoint
+			local cf = info and points and points[info[2]]
+			if cf then targetPosition = cf.Position end
+		end
+		return targetPosition
+	end
+	local function GetSelectedQuestNPCDistance()
+		local targetPosition = GetSelectedQuestNPCPosition()
+		local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+		if not root or not targetPosition then return nil end
+		return (root.Position - targetPosition).Magnitude
+	end
+	local function IsOnSelectedFarmIsland()
+		local distance = GetSelectedQuestNPCDistance()
+		return distance ~= nil and distance <= 2500
+	end
+	local function IsNearSelectedQuestNPC()
+		local distance = GetSelectedQuestNPCDistance()
+		return distance ~= nil and distance <= 50
+	end
+	task.spawn(function()
+		local isEnabled = true
+		SetAutoQuestToggle(true)
+		while getgenv().__AQToggleCycleGeneration == cycleGeneration do
+			if IsOnSelectedFarmIsland() then
+				if isEnabled then
+					-- Os 10s contam ao chegar à ilha; depois disso continua ligado até chegar a 50 studs.
+					local deadline = tick() + 10
+					while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and tick() < deadline do
+						task.wait(0.25)
+					end
+					if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+					while IsOnSelectedFarmIsland() and not IsNearSelectedQuestNPC() and getgenv().__AQToggleCycleGeneration == cycleGeneration do
+						task.wait(0.5)
+					end
+					if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+					if IsOnSelectedFarmIsland() and IsNearSelectedQuestNPC() then
+						SetAutoQuestToggle(false)
+						isEnabled = false
+						-- Aguarda a missão ser registrada antes de liberar o farm.
+						task.wait(5)
+						if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+						if IsOnSelectedFarmIsland() and not IsNearSelectedQuestNPC() then
+							task.wait(5)
+						end
+						local offDeadline = tick() + 75
+						while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and tick() < offDeadline do
+							task.wait(0.25)
+						end
+						if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+						if IsOnSelectedFarmIsland() then
+							isEnabled = true
+							SetAutoQuestToggle(true)
+						end
+					end
+				else
+					-- Se o personagem saiu da ilha, pausa sem forçar o toggle.
+					task.wait(1)
+				end
+			else
+				task.wait(1)
+			end
+		end
+	end)
 end
-
 -- Mantém os toggles "Farm Mastery" e "Start Farm" visualmente iguais ao estado real.
 function SyncMasteryToggle(title, v)
 	if getgenv().__MasterySyncing then
@@ -7293,8 +7288,6 @@ end
 
 GetLevelQuestInfo = B
 TakeQuestLevel = function()
-	-- Evita que o farm aceite a mesma missão em paralelo ao controlador dos Quest Cycle.
-	if IsSelectedAutoQuestCycleConfigured and IsSelectedAutoQuestCycleConfigured() then return end
 	local V = B(t.Data.Level.Value)
 	if not V or not V.Pos then
 		return
@@ -7388,8 +7381,6 @@ function TeleportSpawnMob(V)
 	end
 end
 function QuestBoneAndkatakuri(V, H)
-	-- Os Quest Cycle usam o controlador único; não enviar StartQuest por este caminho também.
-	if IsSelectedAutoQuestCycleConfigured and IsSelectedAutoQuestCycleConfigured() then return end
 	local B = getgenv().questpoint[V]
 	if not B then
 		CFrameQuest()
@@ -8216,21 +8207,9 @@ end
 getgenv().__AQGen = (getgenv().__AQGen or 0) + 1
 getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 
--- O motor de missão é habilitado pelo toggle de ciclo do farm selecionado.
-function IsSelectedAutoQuestCycleEnabled()
-    local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
-    return Settings["Auto Quest"] == true and selected ~= nil
-        and getgenv().__AQCycleQuestActive and getgenv().__AQCycleQuestActive[selected] == true
-end
-
-function IsSelectedAutoQuestCycleConfigured()
-    local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
-    return Settings["Auto Quest"] == true and selected ~= nil
-end
-
--- O farm só espera quando o toggle de ciclo individual está ligado e ainda não há missão ativa.
+-- O farm só espera quando o Auto Quest está ligado, tem alvo e ainda não há missão ativa.
 function AQNeedsQuest()
-    if not IsSelectedAutoQuestCycleEnabled() then
+    if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
         return false
     end
     if Settings["Farm Mastery"] and Settings["Start Farm"] then
@@ -8278,7 +8257,7 @@ do
     end
 
     local function Step()
-        if not IsSelectedAutoQuestCycleEnabled() then
+        if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
             State.atNpcSince = nil
             return
         end
@@ -8335,10 +8314,7 @@ do
         if tick() < State.nextTry then
             return
         end
-        -- Vai até o NPC sem reiniciar o Tween a cada ciclo de 0,25s.
-        -- Chamadas repetidas de toTarget cancelam/recriam o movimento e causam
-        -- o efeito de andar-parar-andar. Reenvia apenas se o personagem ainda
-        -- estiver longe e já tiver passado o intervalo de segurança.
+        -- vai até o NPC
         if (npcPos - root.Position).Magnitude > 8 then
             State.atNpcSince = nil
             if not State.loggedTrip then
@@ -8350,13 +8326,9 @@ do
                     tostring(getgenv().__AQLastTask or "?")
                 ))
             end
-            if not State.nextNpcMove or tick() >= State.nextNpcMove then
-                State.nextNpcMove = tick() + 1.5
-                toTarget(CFrame.new(npcPos) * CFrame.new(0, 4, 2), true)
-            end
+            toTarget(CFrame.new(npcPos) * CFrame.new(0, 4, 2), true)
             return
         end
-        State.nextNpcMove = nil
         State.atNpcSince = State.atNpcSince or tick()
         if tick() - State.atNpcSince < 0.8 then
             return
@@ -26309,12 +26281,12 @@ rawset(_G, "RecoveredFunction_0121", RecoveredFunction_0121)
 end
 
 do
-local function RecoveredFunction_0176(...)local __args = {...};local b = __args[1];local Z = __args[5];return function()if IsSelectedAutoQuestCycleConfigured and IsSelectedAutoQuestCycleConfigured() and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;if DontQuest()then return false,"quest-active";end;local Z=GetBestNPC(b[1].Data.Level.Value);if not Z or not Z.Pos then return false,"no-quest";end;local F,c,l=b[2](Z.Pos)=="CFrame"and Z.Pos.Position or Z.Pos,b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChild("Humanoid"));if not c or not l then return false,"character-unavailable";end;if(F-c.Position).Magnitude<=8 and l.Health>0 then local c=tick();if c<LevelFarmController.NextQuestRequestAt then return false,"debounce";end;LevelFarmController.NextQuestRequestAt=c + 85;if DontQuest()or not b[1].Character or l.Parent~=b[1].Character or l.Health<=0 then return false,"state-changed";end;local c,l=b[3](function()return CommF:InvokeServer("StartQuest",b[4](Z.QuestName),Z.Id);end);LevelFarmController.LastQuestAction=c and"start"or"start-error";LevelFarmController.LastQuestResponse=l;if c and(l==0 or l==true)then LevelFarmController.PendingMob=Z.Mob;LevelFarmController.PendingQuestName=Z.QuestName;LevelFarmController.PendingQuestId=Z.Id;LevelFarmController.PendingUntil=tick()+2.5;return true;end;return false,l;else toTarget(CFrame.new(F)*CFrame.new(0,4,2),true);return false,"moving";end;end;end
+local function RecoveredFunction_0176(...)local __args = {...};local b = __args[1];local Z = __args[5];return function()if Settings and Settings["Auto Quest [Katakuri/Bone/Tyrant]"] and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;if DontQuest()then return false,"quest-active";end;local Z=GetBestNPC(b[1].Data.Level.Value);if not Z or not Z.Pos then return false,"no-quest";end;local F,c,l=b[2](Z.Pos)=="CFrame"and Z.Pos.Position or Z.Pos,b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChild("Humanoid"));if not c or not l then return false,"character-unavailable";end;if(F-c.Position).Magnitude<=8 and l.Health>0 then local c=tick();if c<LevelFarmController.NextQuestRequestAt then return false,"debounce";end;LevelFarmController.NextQuestRequestAt=c + 85;if DontQuest()or not b[1].Character or l.Parent~=b[1].Character or l.Health<=0 then return false,"state-changed";end;local c,l=b[3](function()return CommF:InvokeServer("StartQuest",b[4](Z.QuestName),Z.Id);end);LevelFarmController.LastQuestAction=c and"start"or"start-error";LevelFarmController.LastQuestResponse=l;if c and(l==0 or l==true)then LevelFarmController.PendingMob=Z.Mob;LevelFarmController.PendingQuestName=Z.QuestName;LevelFarmController.PendingQuestId=Z.Id;LevelFarmController.PendingUntil=tick()+2.5;return true;end;return false,l;else toTarget(CFrame.new(F)*CFrame.new(0,4,2),true);return false,"moving";end;end;end
 rawset(_G, "RecoveredFunction_0176", RecoveredFunction_0176)
 end
 
 do
-local function RecoveredFunction_0177()if IsSelectedAutoQuestCycleConfigured and IsSelectedAutoQuestCycleConfigured() and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;if DontQuest()then return false,"quest-active";end;local Z=GetBestNPC(b[1].Data.Level.Value);if not Z or not Z.Pos then return false,"no-quest";end;local F,c,l=b[2](Z.Pos)=="CFrame"and Z.Pos.Position or Z.Pos,b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChild("Humanoid"));if not c or not l then return false,"character-unavailable";end;if(F-c.Position).Magnitude<=8 and l.Health>0 then local c=tick();if c<LevelFarmController.NextQuestRequestAt then return false,"debounce";end;LevelFarmController.NextQuestRequestAt=c + 85;if DontQuest()or not b[1].Character or l.Parent~=b[1].Character or l.Health<=0 then return false,"state-changed";end;local c,l=b[3](function()return CommF:InvokeServer("StartQuest",b[4](Z.QuestName),Z.Id);end);LevelFarmController.LastQuestAction=c and"start"or"start-error";LevelFarmController.LastQuestResponse=l;if c and(l==0 or l==true)then LevelFarmController.PendingMob=Z.Mob;LevelFarmController.PendingQuestName=Z.QuestName;LevelFarmController.PendingQuestId=Z.Id;LevelFarmController.PendingUntil=tick()+2.5;return true;end;return false,l;else toTarget(CFrame.new(F)*CFrame.new(0,4,2),true);return false,"moving";end;end
+local function RecoveredFunction_0177()if Settings and Settings["Auto Quest [Katakuri/Bone/Tyrant]"] and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;if DontQuest()then return false,"quest-active";end;local Z=GetBestNPC(b[1].Data.Level.Value);if not Z or not Z.Pos then return false,"no-quest";end;local F,c,l=b[2](Z.Pos)=="CFrame"and Z.Pos.Position or Z.Pos,b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChild("Humanoid"));if not c or not l then return false,"character-unavailable";end;if(F-c.Position).Magnitude<=8 and l.Health>0 then local c=tick();if c<LevelFarmController.NextQuestRequestAt then return false,"debounce";end;LevelFarmController.NextQuestRequestAt=c + 85;if DontQuest()or not b[1].Character or l.Parent~=b[1].Character or l.Health<=0 then return false,"state-changed";end;local c,l=b[3](function()return CommF:InvokeServer("StartQuest",b[4](Z.QuestName),Z.Id);end);LevelFarmController.LastQuestAction=c and"start"or"start-error";LevelFarmController.LastQuestResponse=l;if c and(l==0 or l==true)then LevelFarmController.PendingMob=Z.Mob;LevelFarmController.PendingQuestName=Z.QuestName;LevelFarmController.PendingQuestId=Z.Id;LevelFarmController.PendingUntil=tick()+2.5;return true;end;return false,l;else toTarget(CFrame.new(F)*CFrame.new(0,4,2),true);return false,"moving";end;end
 rawset(_G, "RecoveredFunction_0177", RecoveredFunction_0177)
 end
 
@@ -26334,17 +26306,17 @@ rawset(_G, "RecoveredFunction_0185", RecoveredFunction_0185)
 end
 
 do
-local function RecoveredFunction_0205(...)local __args = {...};local b = __args[1];return function(Z,F)if IsSelectedAutoQuestCycleConfigured and IsSelectedAutoQuestCycleConfigured() and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;local c=getgenv().questpoint[Z];if not c then CFrameQuest();c=getgenv().questpoint[Z];if not c then return;end;end;local l,H=b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChildOfClass("Humanoid"));if not l or not H then return;end;if(c.Position-l.Position).Magnitude<=8 then local l=tick();if H.Health>0 and not DontQuest()and l>=LevelFarmController.NextQuestRequestAt then LevelFarmController.NextQuestRequestAt=l + 85;local l,H=b[2](function()return CommF:InvokeServer("StartQuest",Z,F);end);LevelFarmController.LastQuestAction=l and"start-special"or"start-special-error";LevelFarmController.LastQuestResponse=H;if l and(H==0 or H==true)then local l=nil;local H=b[3]and b[3][Z];local M=H and H[F];H=M and M.Task;if type(H)=="table"then for M in b[4](H)do l=M;break;end;end;LevelFarmController.PendingMob=l;LevelFarmController.PendingQuestName=Z;LevelFarmController.PendingQuestId=F;LevelFarmController.PendingUntil=tick()+2.5;return true;end;end;else toTarget(c*CFrame.new(0,4,2),true);end;end;end
+local function RecoveredFunction_0205(...)local __args = {...};local b = __args[1];return function(Z,F)if Settings and Settings["Auto Quest [Katakuri/Bone/Tyrant]"] and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;local c=getgenv().questpoint[Z];if not c then CFrameQuest();c=getgenv().questpoint[Z];if not c then return;end;end;local l,H=b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChildOfClass("Humanoid"));if not l or not H then return;end;if(c.Position-l.Position).Magnitude<=8 then local l=tick();if H.Health>0 and not DontQuest()and l>=LevelFarmController.NextQuestRequestAt then LevelFarmController.NextQuestRequestAt=l + 85;local l,H=b[2](function()return CommF:InvokeServer("StartQuest",Z,F);end);LevelFarmController.LastQuestAction=l and"start-special"or"start-special-error";LevelFarmController.LastQuestResponse=H;if l and(H==0 or H==true)then local l=nil;local H=b[3]and b[3][Z];local M=H and H[F];H=M and M.Task;if type(H)=="table"then for M in b[4](H)do l=M;break;end;end;LevelFarmController.PendingMob=l;LevelFarmController.PendingQuestName=Z;LevelFarmController.PendingQuestId=F;LevelFarmController.PendingUntil=tick()+2.5;return true;end;end;else toTarget(c*CFrame.new(0,4,2),true);end;end;end
 rawset(_G, "RecoveredFunction_0205", RecoveredFunction_0205)
 end
 
 do
-local function RecoveredFunction_0206(Z,F)if IsSelectedAutoQuestCycleConfigured and IsSelectedAutoQuestCycleConfigured() and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;local c=getgenv().questpoint[Z];if not c then CFrameQuest();c=getgenv().questpoint[Z];if not c then return;end;end;local l,H=b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChildOfClass("Humanoid"));if not l or not H then return;end;if(c.Position-l.Position).Magnitude<=8 then local l=tick();if H.Health>0 and not DontQuest()and l>=LevelFarmController.NextQuestRequestAt then LevelFarmController.NextQuestRequestAt=l + 85;local l,H=b[2](function()return CommF:InvokeServer("StartQuest",Z,F);end);LevelFarmController.LastQuestAction=l and"start-special"or"start-special-error";LevelFarmController.LastQuestResponse=H;if l and(H==0 or H==true)then local l=nil;local H=b[3]and b[3][Z];local M=H and H[F];H=M and M.Task;if type(H)=="table"then for M in b[4](H)do l=M;break;end;end;LevelFarmController.PendingMob=l;LevelFarmController.PendingQuestName=Z;LevelFarmController.PendingQuestId=F;LevelFarmController.PendingUntil=tick()+2.5;return true;end;end;else toTarget(c*CFrame.new(0,4,2),true);end;end
+local function RecoveredFunction_0206(Z,F)if Settings and Settings["Auto Quest [Katakuri/Bone/Tyrant]"] and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;local c=getgenv().questpoint[Z];if not c then CFrameQuest();c=getgenv().questpoint[Z];if not c then return;end;end;local l,H=b[1].Character and(b[1].Character:FindFirstChild("HumanoidRootPart")),b[1].Character and(b[1].Character:FindFirstChildOfClass("Humanoid"));if not l or not H then return;end;if(c.Position-l.Position).Magnitude<=8 then local l=tick();if H.Health>0 and not DontQuest()and l>=LevelFarmController.NextQuestRequestAt then LevelFarmController.NextQuestRequestAt=l + 85;local l,H=b[2](function()return CommF:InvokeServer("StartQuest",Z,F);end);LevelFarmController.LastQuestAction=l and"start-special"or"start-special-error";LevelFarmController.LastQuestResponse=H;if l and(H==0 or H==true)then local l=nil;local H=b[3]and b[3][Z];local M=H and H[F];H=M and M.Task;if type(H)=="table"then for M in b[4](H)do l=M;break;end;end;LevelFarmController.PendingMob=l;LevelFarmController.PendingQuestName=Z;LevelFarmController.PendingQuestId=F;LevelFarmController.PendingUntil=tick()+2.5;return true;end;end;else toTarget(c*CFrame.new(0,4,2),true);end;end
 rawset(_G, "RecoveredFunction_0206", RecoveredFunction_0206)
 end
 
 do
-local function RecoveredFunction_0207()if IsSelectedAutoQuestCycleConfigured and IsSelectedAutoQuestCycleConfigured() and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;return CommF:InvokeServer("StartQuest",Z,F);end
+local function RecoveredFunction_0207()if Settings and Settings["Auto Quest [Katakuri/Bone/Tyrant]"] and GetSelectedIndividualFarm and GetSelectedIndividualFarm()=="Auto Farm Level" then return false,"auto-quest-only";end;return CommF:InvokeServer("StartQuest",Z,F);end
 rawset(_G, "RecoveredFunction_0207", RecoveredFunction_0207)
 end
 
