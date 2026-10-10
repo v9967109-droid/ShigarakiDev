@@ -14224,6 +14224,7 @@ FarmingMultiSeaEventSection.CreateToggle(
 								end)
 							end
 						end
+						end
 					else
 						pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
 					end
