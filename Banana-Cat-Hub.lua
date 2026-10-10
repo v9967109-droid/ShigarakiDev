@@ -8115,26 +8115,59 @@ getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 
 -- O farm só espera quando o Auto Quest está ligado, tem alvo e ainda não há missão ativa.
 local function AQSetAutoQuestEnabled(enabled)
-    -- Atualiza estado interno E a toggle visual; não usa SaveSettings para evitar efeitos colaterais nos farms.
-    getgenv().__AQAutoSyncing = true
+    -- Atualiza estado interno e tenta atualizar o controle real da interface.
     Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = enabled
-    pcall(function()
-        local opt = Options and Options["Auto Quest"]
-        local control = opt and opt.FunctionCreate
-        if control and control.SetValue then
-            control:SetValue(enabled)
-        elseif control and control.SetStage then
-            control:SetStage(enabled)
+    getgenv().__AQAutoSyncing = true
+    local changed = false
+    local opt = Options and Options["Auto Quest"]
+    local control = opt and opt.FunctionCreate
+    if control then
+        if type(control.SetValue) == "function" then
+            changed = pcall(function() control:SetValue(enabled) end)
+            if not changed then
+                changed = pcall(function() control.SetValue(enabled) end)
+            end
         end
-    end)
+        if not changed and type(control.SetStage) == "function" then
+            changed = pcall(function() control:SetStage(enabled) end)
+            if not changed then
+                changed = pcall(function() control.SetStage(enabled) end)
+            end
+        end
+    end
+    -- Some UI wrappers expose the option itself as the setter.
+    if not changed and opt then
+        if type(opt.SetValue) == "function" then
+            changed = pcall(function() opt:SetValue(enabled) end)
+        elseif type(opt.SetStage) == "function" then
+            changed = pcall(function() opt:SetStage(enabled) end)
+        end
+    end
     getgenv().__AQAutoSyncing = false
     pcall(function()
-        if not isfolder(FolderName) then
-            makefolder(FolderName)
-        end
+        if not isfolder(FolderName) then makefolder(FolderName) end
         writefile(FolderName .. "/" .. SaveFileName, HttpService:JSONEncode(Settings))
     end)
+    return changed
 end
+
+-- Ciclo permanente da toggle: 10 segundos ligada, 45 segundos desligada.
+-- Usa um token próprio para evitar controladores duplicados se o script for reexecutado.
+getgenv().__AQCycleRunnerToken = (getgenv().__AQCycleRunnerToken or 0) + 1
+local AQCycleRunnerToken = getgenv().__AQCycleRunnerToken
+task.spawn(function()
+    -- Dá tempo para a biblioteca registrar o controle da interface.
+    task.wait(2)
+    AQSetAutoQuestEnabled(true)
+    while getgenv().__AQCycleRunnerToken == AQCycleRunnerToken do
+        task.wait(10)
+        if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
+        AQSetAutoQuestEnabled(false)
+        task.wait(45)
+        if getgenv().__AQCycleRunnerToken ~= AQCycleRunnerToken then break end
+        AQSetAutoQuestEnabled(true)
+    end
+end)
 
 function AQNeedsQuest()
     if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
@@ -8287,24 +8320,6 @@ do
             State.nextTry = tick() + 1
             State.graceUntil = tick() + 8
             getgenv().__AQGiveUp = nil
-            -- Ciclo em loop: 10s depois de aceitar, desliga Auto Quest; 45s depois, liga novamente.
-            -- Ao aceitar a próxima missão, o ciclo recomeça. Não desliga os farms nem o FarmMethod.
-            local cycleToken = getgenv().__AQCycleToken or 0
-            task.spawn(function()
-                task.wait(10)
-                if getgenv().__AQCycleToken ~= cycleToken
-                    or not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
-                    return
-                end
-                AQSetAutoQuestEnabled(false)
-                task.wait(45)
-                if getgenv().__AQCycleToken ~= cycleToken then
-                    return
-                end
-                if GetSelectedIndividualFarm() and not (Settings["Farm Mastery"] and Settings["Start Farm"]) then
-                    AQSetAutoQuestEnabled(true)
-                end
-            end)
             -- Solta o personagem do NPC: cancela o movimento até ele para o farm assumir já.
             pcall(function()
                 TweenManager.CancelCurrent()
