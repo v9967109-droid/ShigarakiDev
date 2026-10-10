@@ -6946,7 +6946,8 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
 	end
 )
--- Ciclo Auto Quest: 10s ligado e 75s desligado, somente na ilha do farm selecionado.
+-- Ciclo Auto Quest: 10s ligado; depois de confirmar a proximidade do NPC,
+-- fica desligado por 75s em Katakuri/Tyrant, 45s em Bones e 40s em Level.
 -- Fora da ilha correspondente, o ciclo fica pausado e não altera o toggle.
 do
 	getgenv().__AQToggleCycleGeneration = (getgenv().__AQToggleCycleGeneration or 0) + 1
@@ -6996,8 +6997,15 @@ do
 		local targetPosition = GetSelectedQuestNPCPosition()
 		local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
 		if not root or not targetPosition then return false end
-		-- O ciclo só começa quando o personagem chega perto do NPC da missão.
-		return (root.Position - targetPosition).Magnitude <= 100
+		-- Considera perto do NPC somente quando estiver a 50 studs ou menos.
+		return (root.Position - targetPosition).Magnitude <= 50
+	end
+	local function GetSelectedFarmOffDuration()
+		local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
+		if selected == "Auto Farm Bones" then return 45 end
+		if selected == "Auto Farm Level" then return 40 end
+		-- Katakuri e Tyrant mantêm o tempo anterior.
+		return 75
 	end
 	task.spawn(function()
 		local isEnabled = true
@@ -7031,13 +7039,13 @@ do
 							task.wait(5)
 						end
 						if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-						offDeadline = tick() + 75
+						offDeadline = tick() + GetSelectedFarmOffDuration()
 					end
 				else
 					task.wait(0.5)
 				end
 			else
-				-- Depois da confirmação, mantém desligado por 75s e então religa.
+				-- Depois da confirmação, mantém desligado pelo tempo do farm selecionado e então religa.
 				if offDeadline and tick() >= offDeadline then
 					SetAutoQuestToggle(true)
 					isEnabled = true
