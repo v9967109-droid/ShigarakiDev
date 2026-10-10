@@ -6966,9 +6966,9 @@ do
 			end
 		end)
 	end
-	local function IsOnSelectedFarmIsland()
+	local function GetSelectedQuestNPCPosition()
 		local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
-		if not selected or selected == "Aura Farm" or Settings["Farm Material"] then return false end
+		if not selected or selected == "Aura Farm" or Settings["Farm Material"] then return nil end
 		local targetPosition
 		if selected == "Auto Farm Level" then
 			pcall(function()
@@ -6983,16 +6983,29 @@ do
 			local cf = info and points and points[info[2]]
 			if cf then targetPosition = cf.Position end
 		end
+		return targetPosition
+	end
+	local function IsOnSelectedFarmIsland()
+		local targetPosition = GetSelectedQuestNPCPosition()
 		local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
 		if not root or not targetPosition then return false end
-		-- NPC position is used as the island anchor for the currently selected farm.
+		-- Distância ampla para reconhecer que chegou à ilha correspondente.
 		return (root.Position - targetPosition).Magnitude <= 2500
+	end
+	local function IsNearSelectedQuestNPC()
+		local targetPosition = GetSelectedQuestNPCPosition()
+		local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+		if not root or not targetPosition then return false end
+		-- O ciclo só começa quando o personagem chega perto do NPC da missão.
+		return (root.Position - targetPosition).Magnitude <= 100
 	end
 	task.spawn(function()
 		local isEnabled = true
+		local startedAtNPC = false
 		SetAutoQuestToggle(true)
 		while getgenv().__AQToggleCycleGeneration == cycleGeneration do
-			if IsOnSelectedFarmIsland() then
+			if IsOnSelectedFarmIsland() and (startedAtNPC or IsNearSelectedQuestNPC()) then
+				startedAtNPC = true
 				local duration = isEnabled and 10 or 75
 				local deadline = tick() + duration
 				while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and tick() < deadline do
@@ -7004,7 +7017,7 @@ do
 					SetAutoQuestToggle(isEnabled)
 				end
 			else
-				-- Fora da ilha do farm selecionado, não força ligar/desligar; aguarda entrar.
+				-- Na ilha, aguarda chegar perto do NPC; fora dela, também aguarda sem alterar o toggle.
 				task.wait(1)
 			end
 		end
