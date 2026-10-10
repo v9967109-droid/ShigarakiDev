@@ -7001,28 +7001,55 @@ do
 	end
 	task.spawn(function()
 		local isEnabled = true
-		local startedAtNPC = false
+		local offDeadline = nil
 		SetAutoQuestToggle(true)
 		while getgenv().__AQToggleCycleGeneration == cycleGeneration do
-			if IsOnSelectedFarmIsland() and (startedAtNPC or IsNearSelectedQuestNPC()) then
-				startedAtNPC = true
-				local duration = isEnabled and 10 or 75
-				local deadline = tick() + duration
-				while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and tick() < deadline do
-					task.wait(0.25)
-				end
-				if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-				if IsOnSelectedFarmIsland() then
-					isEnabled = not isEnabled
-					SetAutoQuestToggle(isEnabled)
+			if not IsOnSelectedFarmIsland() then
+				-- Fora da ilha: pausa o ciclo sem alterar o estado do toggle.
+				task.wait(1)
+			elseif isEnabled then
+				if IsNearSelectedQuestNPC() then
+					local deadline = tick() + 10
+					while getgenv().__AQToggleCycleGeneration == cycleGeneration
+						and IsOnSelectedFarmIsland() and tick() < deadline do
+						task.wait(0.25)
+					end
+					if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+					-- Depois dos 10s, permanece ligado até chegar perto do NPC novamente.
+					while getgenv().__AQToggleCycleGeneration == cycleGeneration
+						and IsOnSelectedFarmIsland() and not IsNearSelectedQuestNPC() do
+						task.wait(0.5)
+					end
+					if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+					if IsOnSelectedFarmIsland() and IsNearSelectedQuestNPC() then
+						SetAutoQuestToggle(false)
+						isEnabled = false
+						-- Espera 5s para confirmar; se estiver longe, verifica novamente a cada 5s.
+						task.wait(5)
+						while getgenv().__AQToggleCycleGeneration == cycleGeneration
+							and IsOnSelectedFarmIsland() and not IsNearSelectedQuestNPC() do
+							task.wait(5)
+						end
+						if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+						offDeadline = tick() + 75
+					end
+				else
+					task.wait(0.5)
 				end
 			else
-				-- Na ilha, aguarda chegar perto do NPC; fora dela, também aguarda sem alterar o toggle.
-				task.wait(1)
+				-- Depois da confirmação, mantém desligado por 75s e então religa.
+				if offDeadline and tick() >= offDeadline then
+					SetAutoQuestToggle(true)
+					isEnabled = true
+					offDeadline = nil
+				else
+					task.wait(0.5)
+				end
 			end
 		end
 	end)
 end
+
 -- Mantém os toggles "Farm Mastery" e "Start Farm" visualmente iguais ao estado real.
 function SyncMasteryToggle(title, v)
 	if getgenv().__MasterySyncing then
