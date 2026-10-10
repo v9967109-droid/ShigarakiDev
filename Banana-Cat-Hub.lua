@@ -8273,8 +8273,8 @@ do
             State.nextTry = tick() + 1
             State.graceUntil = tick() + 8
             getgenv().__AQGiveUp = nil
-            -- Ciclo pedido: 10s depois de aceitar, desliga Auto Quest; 60s depois, liga novamente.
-            -- Não desliga os farms nem o FarmMethod. Uma interação manual cancela este ciclo.
+            -- Ciclo em loop: 10s depois de aceitar, desliga Auto Quest; 45s depois, liga novamente.
+            -- Ao aceitar a próxima missão, o ciclo recomeça. Não desliga os farms nem o FarmMethod.
             local cycleToken = getgenv().__AQCycleToken or 0
             task.spawn(function()
                 task.wait(10)
@@ -8283,7 +8283,7 @@ do
                     return
                 end
                 AQSetAutoQuestEnabled(false)
-                task.wait(60)
+                task.wait(45)
                 if getgenv().__AQCycleToken ~= cycleToken then
                     return
                 end
