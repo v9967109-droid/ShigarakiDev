@@ -13852,150 +13852,6 @@ FarmingSeaEventSection.CreateToggle(
 		SaveSettings("Auto Sea Event", _)
 	end
 )
-
-
--- Farming Multi Sea Event: seção isolada para não alterar os controles existentes.
-local FarmingMultiSeaEventSection = SeaEventTab.CreateSection("Farming Multi Sea Event")
-local MultiSeaEventPlayerDropdown = FarmingMultiSeaEventSection.CreateDropdown(
-    {
-        Title = "Select Player Multi Sea Event",
-        List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
-        Search = true,
-        Selected = true,
-        Default = Settings["Select Player Multi Sea Event"] or nil,
-    },
-    function(value, state)
-        SaveSettings("Select Player Multi Sea Event", value, state)
-    end
-)
-FarmingMultiSeaEventSection.CreateButton({ Title = "Refresh Player" }, function()
-    MultiSeaEventPlayerDropdown:GetNewList(DetectNamePlayerMulti())
-end)
-
-local function GetMultiSeaEventSelectedPlayers()
-    local selected = Settings["Select Player Multi Sea Event"]
-    local players = {}
-    if type(selected) ~= "table" then return players end
-    for name, enabled in pairs(selected) do
-        if enabled == true then
-            local player = game:GetService("Players"):FindFirstChild(name)
-            if player and player ~= t then table.insert(players, player) end
-        end
-    end
-    return players
-end
-
-local function AreMultiSeaEventPlayersSeated(boat)
-    local players = GetMultiSeaEventSelectedPlayers()
-    if #players == 0 or not boat or not boat.Parent then return false end
-    for _, player in ipairs(players) do
-        local character = player.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        local seatPart = humanoid and humanoid.SeatPart
-        if not seatPart or not (seatPart:IsA("Seat") or seatPart:IsA("VehicleSeat")) or not seatPart:IsDescendantOf(boat) then
-            return false
-        end
-    end
-    return true
-end
-
-local function SetMultiSeaEventBoatForward(seat, enabled)
-    if not seat or not seat.Parent then return end
-    pcall(function() seat.ThrottleFloat = enabled and 1 or 0 end)
-    pcall(function() seat.Throttle = enabled and 1 or 0 end)
-end
-
-local function StartSeaEventAfterMultiDrive()
-    if Settings["Auto Sea Event"] then return end
-    SaveSettings("Auto Sea Event", true)
-    getgenv().StopBoatSeaEvent = true
-    spawn(function()
-        while Settings["Auto Sea Event"] and task.wait() do
-            pcall(function() AutoSeabeast() end)
-        end
-    end)
-end
-
-FarmingMultiSeaEventSection.CreateToggle(
-    {
-        Title = "Auto Multi Sea Event",
-        Desc = "Wait for selected players to sit in your boat, move forward 650 studs, then start Sea Event.",
-        Default = Settings["Auto Multi Sea Event"] or false,
-    },
-    function(enabled)
-        SaveSettings("Auto Multi Sea Event", enabled)
-        getgenv().MultiSeaEventCycle = (getgenv().MultiSeaEventCycle or 0) + 1
-        local cycle = getgenv().MultiSeaEventCycle
-        getgenv().MultiSeaEventMoveDone = false
-        getgenv().MultiSeaEventMovingForward = false
-
-        if not enabled then
-            local boat = checkboat()
-            SetMultiSeaEventBoatForward(boat and boat:FindFirstChild("VehicleSeat", true), false)
-            return
-        end
-
-        spawn(function()
-            while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventCycle == cycle do
-                local selectedPlayers = GetMultiSeaEventSelectedPlayers()
-                local boat = checkboat()
-                local seat = boat and boat:FindFirstChild("VehicleSeat", true)
-                local character = t.Character
-                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-                if #selectedPlayers > 0 and boat and seat and seat:IsA("VehicleSeat") and AreMultiSeaEventPlayersSeated(boat) then
-                    if humanoid and humanoid.SeatPart == seat then
-                        if not getgenv().MultiSeaEventMoveDone then
-                            local startPosition = seat.Position
-                            local valid = true
-                            getgenv().MultiSeaEventMovingForward = true
-
-                            while Settings["Auto Multi Sea Event"]
-                                and getgenv().MultiSeaEventCycle == cycle
-                                and seat.Parent
-                                and (seat.Position - startPosition).Magnitude < 650 do
-                                if not AreMultiSeaEventPlayersSeated(boat) then
-                                    valid = false
-                                    break
-                                end
-                                local currentCharacter = t.Character
-                                local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
-                                if not currentHumanoid or currentHumanoid.SeatPart ~= seat then
-                                    valid = false
-                                    break
-                                end
-                                SetMultiSeaEventBoatForward(seat, true)
-                                task.wait()
-                            end
-
-                            SetMultiSeaEventBoatForward(seat, false)
-                            getgenv().MultiSeaEventMovingForward = false
-                            if valid and seat.Parent and (seat.Position - startPosition).Magnitude >= 650
-                                and AreMultiSeaEventPlayersSeated(boat) then
-                                getgenv().MultiSeaEventMoveDone = true
-                                StartSeaEventAfterMultiDrive()
-                            end
-                        end
-                    else
-                        SetMultiSeaEventBoatForward(seat, false)
-                        getgenv().MultiSeaEventMovingForward = false
-                        if seat and seat.Parent then pcall(function() toTarget(seat.CFrame) end) end
-                    end
-                else
-                    SetMultiSeaEventBoatForward(seat, false)
-                    getgenv().MultiSeaEventMovingForward = false
-                    getgenv().MultiSeaEventMoveDone = false
-                end
-                task.wait(0.25)
-            end
-
-            local boat = checkboat()
-            SetMultiSeaEventBoatForward(boat and boat:FindFirstChild("VehicleSeat", true), false)
-            getgenv().MultiSeaEventMovingForward = false
-        end)
-    end
-)
-
 local _
 if game.PlaceId == getgenv().CheckPlaceId then
 	_ = require(game:GetService("ReplicatedStorage").DangerDistance)
@@ -14289,6 +14145,96 @@ spawn(function()
 		end)
 	end
 end)
+-- Farming Multi Sea Event: usa os seletores já existentes e mantém a lógica isolada.
+local FarmingMultiSeaEventSection = SeaEventTab.CreateSection("Farming Multi Sea Event")
+local MultiSeaEventPlayerDropdown = FarmingMultiSeaEventSection.CreateDropdown(
+	{
+		Title = "Select Player Multi Sea Event",
+		List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
+		Search = true,
+		Selected = true,
+		Default = Settings["Select Player Multi Sea Event"] or nil,
+	},
+	function(value, state)
+		SaveSettings("Select Player Multi Sea Event", value, state)
+	end
+)
+FarmingMultiSeaEventSection.CreateButton({ Title = "Refresh Player" }, function()
+	MultiSeaEventPlayerDropdown:GetNewList(DetectNamePlayerMulti())
+end)
+
+FarmingMultiSeaEventSection.CreateToggle(
+	{ Title = "Auto Multi Sea Event", Desc = "Wait for selected players to sit in the boat, move forward, then start Sea Event.", Default = Settings["Auto Multi Sea Event"] or false },
+	function(enabled)
+		SaveSettings("Auto Multi Sea Event", enabled)
+		getgenv().MultiSeaEventRunId = (getgenv().MultiSeaEventRunId or 0) + 1
+		local runId = getgenv().MultiSeaEventRunId
+		if not enabled then
+			pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+			return
+		end
+		spawn(function()
+			local function selectedPlayersAreSeated(boat)
+				local selected = Settings["Select Player Multi Sea Event"]
+				if type(selected) ~= "table" then return false end
+				local count = 0
+				for playerName, chosen in pairs(selected) do
+					if chosen then
+						local player = game:GetService("Players"):FindFirstChild(playerName)
+						if player and player ~= t then
+							count = count + 1
+							local character = player.Character
+							local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+							local seatPart = humanoid and humanoid.SeatPart
+							if not seatPart or not seatPart:IsDescendantOf(boat) then return false end
+						end
+					end
+				end
+				return count > 0
+			end
+			local moved = false
+			while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId do
+				local ok, boat = pcall(checkboat)
+				if ok and boat and boat.Parent then
+					local seat = boat:FindFirstChild("VehicleSeat", true)
+					local character = t.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					if seat and seat:IsA("VehicleSeat") and humanoid and humanoid.SeatPart == seat and selectedPlayersAreSeated(boat) then
+						if not moved then
+							local startPos = seat.Position
+						local valid = true
+						pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.W, false, game) end)
+						while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId and seat.Parent and (seat.Position - startPos).Magnitude < 650 do
+							if not selectedPlayersAreSeated(boat) then valid = false; break end
+							local currentCharacter = t.Character
+						local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+							if not currentHumanoid or currentHumanoid.SeatPart ~= seat then valid = false; break end
+							task.wait(0.1)
+						end
+						pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+						if valid and seat.Parent and (seat.Position - startPos).Magnitude >= 650 and selectedPlayersAreSeated(boat) then
+							moved = true
+							if not Settings["Auto Sea Event"] then
+								SaveSettings("Auto Sea Event", true)
+								spawn(function()
+									while Settings["Auto Multi Sea Event"] and Settings["Auto Sea Event"] and getgenv().MultiSeaEventRunId == runId do
+										pcall(function() AutoSeabeast() end)
+										task.wait(0.1)
+									end
+								end)
+							end
+						end
+					else
+						pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+					end
+				end
+				task.wait(0.25)
+			end
+			pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+		end)
+	end
+)
+
 LeviathanEventSection = SeaEventTab.CreateSection("Leviathan Event")
 LeviathanEventSection.CreateSlider(
 	{ Title = "Distance Auto Buy Boat", Min = 0, Max = 5000, Default = math.min(tonumber(Settings["Distance Auto Buy Boat"]) or 1250, 5000), Precise = true },
