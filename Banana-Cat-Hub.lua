@@ -7970,6 +7970,51 @@ AutoQuestInfo = {
 }
 
 -- Detect whether a quest is already active. This belongs to Auto Quest only.
+-- Diagnóstico do Auto Quest: imprime no console (F9) POR QUE ele vai ao NPC / pede a missão.
+-- Desligue com getgenv().AQDebug = false antes de executar o script.
+function AQLog(msg)
+    if getgenv().AQDebug == false then
+        return
+    end
+    getgenv().__AQLogLast = getgenv().__AQLogLast or {}
+    local last = getgenv().__AQLogLast[msg]
+    if last and tick() - last < 2 then
+        return
+    end
+    getgenv().__AQLogLast[msg] = tick()
+    warn("[Banana Cat Hub][AutoQuest] " .. msg)
+end
+-- Tarefas da missão atual como texto (ex.: "Bandit=3"), lidas do GuideModule.
+function AQTaskString()
+    local parts = {}
+    pcall(function()
+        local gm = require(game.ReplicatedStorage:WaitForChild("GuideModule"))
+        local qd = gm.Data and gm.Data.QuestData
+        local task = qd and qd.Task
+        if type(task) == "table" then
+            for k, v in pairs(task) do
+                parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
+            end
+        end
+    end)
+    return #parts > 0 and table.concat(parts, ",") or "?"
+end
+-- Soma do que ainda falta matar na missão ativa (nil se não der para ler).
+function AQQuestRemaining()
+    local total
+    pcall(function()
+        local data = Z.Data and Z.Data.QuestData
+        local task = data and data.Task
+        if type(task) == "table" then
+            total = 0
+            for _, v in pairs(task) do
+                total = total + (tonumber(v) or 0)
+            end
+        end
+    end)
+    return total
+end
+
 function AQIsQuestActive()
     local has = false
     pcall(function()
@@ -7985,13 +8030,32 @@ function AQIsQuestActive()
         -- Histerese: a interface/os dados da missão podem piscar por 1 frame ao matar um mob. Só conta como
         -- "sem missão" depois de 3s seguidos sem nenhum sinal de missão (antes qualquer piscada fazia o
         -- script voltar ao NPC e pegar a missão de novo antes de completar).
-        if tick() - (getgenv().__AQLastRaw or 0) < 3 then
+        -- O tempo de espera depende de quanto faltava matar na última leitura:
+        --   faltava 0 a 2 (ou é a última morte)  -> 3s   (concluída de verdade);
+        --   não deu para ler o progresso         -> 8s;
+        --   faltava mais de 2                    -> 25s  (a missão sumiu SEM estar concluída: morte,
+        --                                                 troca de servidor etc.; antes o script pegava
+        --                                                 a missão de novo na hora e perdia o progresso).
+        local remaining = getgenv().__AQLastRemaining
+        local quiet = remaining == nil and 8 or (remaining <= 2 and 3 or 25)
+        if tick() - (getgenv().__AQLastRaw or 0) < quiet then
             return true
+        end
+        if getgenv().__AQLastRaw and not getgenv().__AQLogged then
+            getgenv().__AQLogged = true
+            print(string.format("[Banana Cat Hub][Auto Quest] missão encerrada (faltava=%s, espera=%ds); pegando a próxima",
+                tostring(remaining), quiet))
         end
         getgenv().__AQDoneSince, getgenv().__AQSeenPositive = nil, nil
         return false
     end
     getgenv().__AQLastRaw = tick()
+    getgenv().__AQLogged = nil
+    getgenv().__AQLastRemaining = AQQuestRemaining()
+    if tick() - (getgenv().__AQTaskAt or 0) > 0.5 then
+        getgenv().__AQTaskAt = tick()
+        getgenv().__AQLastTask = AQTaskString()
+    end
     -- Missão concluída: todas as tarefas zeradas por 1,5s. Só vale se, nesta missão, já vimos uma tarefa
     -- positiva (assim um "tudo zero" logo ao aceitar nunca é tomado por missão concluída).
     local ok, Task = pcall(function()
@@ -8062,7 +8126,7 @@ end
 
 do
     local MyGen = getgenv().__AQGen
-    local State = { fails = 0, nextTry = 0, atNpcSince = nil, busy = false, graceUntil = 0 }
+    local State = { fails = 0, nextTry = 0, atNpcSince = nil, busy = false, graceUntil = 0, wasActive = false, lastDeath = 0, loggedTrip = false }
 
     -- Retorna nome da missão, id e posição do NPC da missão do farm selecionado.
     local function QuestTarget(selectedFarm)
@@ -8109,15 +8173,32 @@ do
         local humanoid = character and character:FindFirstChildOfClass("Humanoid")
         if not root or not humanoid or humanoid.Health <= 0 then
             State.atNpcSince = nil
+            if humanoid and humanoid.Health <= 0 then
+                State.lastDeath = tick()
+            end
             return
         end
         -- FARMAR: missão ativa -> não mexe em nada e zera as falhas.
-        if AQIsQuestActive() then
-            State.fails, State.atNpcSince = 0, nil
+        local activeNow = AQIsQuestActive()
+        if activeNow ~= State.wasActive then
+            State.wasActive = activeNow
+            if activeNow then
+                AQLog("missão ATIVA | tarefa: " .. AQTaskString())
+            else
+                local diedAgo = tick() - State.lastDeath
+                AQLog(string.format(
+                    "missão SUMIU | última tarefa vista: %s | morreu há %s",
+                    tostring(getgenv().__AQLastTask or "?"),
+                    State.lastDeath > 0 and string.format("%.0fs", diedAgo) or "nunca"
+                ))
+            end
+        end
+        if activeNow then
+            State.fails, State.atNpcSince, State.loggedTrip = 0, nil, false
             getgenv().__AQGiveUp = nil
             return
         end
-        -- Folga: nos 5s seguintes a uma missão aceita ela não pode estar concluída; se a leitura falhou,
+        -- Folga: nos 8s seguintes a uma missão aceita ela não pode estar concluída; se a leitura falhou,
         -- é oscilação. Não vai ao NPC nem faz o farm esperar.
         if tick() < State.graceUntil then
             return
@@ -8136,6 +8217,15 @@ do
         -- vai até o NPC
         if (npcPos - root.Position).Magnitude > 8 then
             State.atNpcSince = nil
+            if not State.loggedTrip then
+                State.loggedTrip = true
+                AQLog(string.format(
+                    "indo ao NPC (%s) | sem sinal de missão há %.1fs | última tarefa vista: %s",
+                    questName,
+                    tick() - (getgenv().__AQLastRaw or 0),
+                    tostring(getgenv().__AQLastTask or "?")
+                ))
+            end
             toTarget(CFrame.new(npcPos) * CFrame.new(0, 4, 2), true)
             return
         end
@@ -8151,6 +8241,7 @@ do
         end
         -- inicia a missão uma vez e confere
         State.busy = true
+        AQLog("StartQuest enviado: " .. tostring(questName) .. " id " .. tostring(questId))
         pcall(function()
             CommF:InvokeServer("StartQuest", questName, questId)
         end)
@@ -8162,10 +8253,11 @@ do
         until opened or tick() > deadline
         State.busy = false
         State.atNpcSince = nil
+        State.loggedTrip = false
         if opened then
             State.fails = 0
             State.nextTry = tick() + 1
-            State.graceUntil = tick() + 5
+            State.graceUntil = tick() + 8
             getgenv().__AQGiveUp = nil
             -- Solta o personagem do NPC: cancela o movimento até ele para o farm assumir já.
             pcall(function()
