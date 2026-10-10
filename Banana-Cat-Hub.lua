@@ -6946,8 +6946,9 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
 	end
 )
--- Ciclo Auto Quest compartilhado pelos quatro farms: 10s ligado, aproximação até 10 studs,
--- confirmação da missão e 75s desligado. O tempo só avança na ilha do farm selecionado.
+-- Ciclo Auto Quest: ligado por no mínimo 10s; só desliga quando chega a até 10 studs do NPC.
+-- Após desligar, confirma depois de 5s e espera mais 5s somente se ainda estiver longe do NPC.
+-- Fora da ilha do farm selecionado, pausa sem forçar o toggle.
 do
 	getgenv().__AQToggleCycleGeneration = (getgenv().__AQToggleCycleGeneration or 0) + 1
 	local cycleGeneration = getgenv().__AQToggleCycleGeneration
@@ -6981,63 +6982,44 @@ do
 		end
 		return targetPosition
 	end
-	local function GetSelectedQuestNPCDistance()
-		local pos = GetSelectedQuestNPCPosition()
+	local function GetNPCDistance()
+		local targetPosition = GetSelectedQuestNPCPosition()
 		local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
-		if not root or not pos then return nil end
-		return (root.Position - pos).Magnitude
+		if not root or not targetPosition then return math.huge end
+		return (root.Position - targetPosition).Magnitude
 	end
-	local function IsOnSelectedFarmIsland()
-		local distance = GetSelectedQuestNPCDistance()
-		return distance ~= nil and distance <= 2500
-	end
-	local function IsNearSelectedQuestNPC()
-		local distance = GetSelectedQuestNPCDistance()
-		return distance ~= nil and distance <= 10
-	end
-	-- Pausa a contagem fora da ilha e retoma com o tempo restante ao voltar.
-	local function WaitOnIsland(seconds)
-		local remaining = seconds
-		local last = tick()
-		while getgenv().__AQToggleCycleGeneration == cycleGeneration and remaining > 0 do
-			task.wait(0.2)
-			local now = tick()
-			if IsOnSelectedFarmIsland() then remaining = remaining - (now - last) end
-			last = now
-		end
-	end
+	local function IsOnSelectedFarmIsland() return GetNPCDistance() <= 2500 end
+	local function IsNearSelectedQuestNPC() return GetNPCDistance() <= 10 end
 	task.spawn(function()
 		local isEnabled = true
 		SetAutoQuestToggle(true)
 		while getgenv().__AQToggleCycleGeneration == cycleGeneration do
 			if not IsOnSelectedFarmIsland() then
-				task.wait(0.5)
-			else
-				if isEnabled then
-					WaitOnIsland(10)
+				task.wait(1)
+			elseif isEnabled then
+				-- Os 10s são um mínimo: não desliga até chegar a 10 studs do NPC da missão.
+				local deadline = tick() + 10
+				while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and tick() < deadline do task.wait(0.25) end
+				if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+				while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and not IsNearSelectedQuestNPC() do task.wait(0.25) end
+				if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+				if IsOnSelectedFarmIsland() and IsNearSelectedQuestNPC() then
+					isEnabled = false
+					SetAutoQuestToggle(false)
+					task.wait(5)
 					if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-					-- Depois dos 10s continua ligado até chegar a 10 studs do NPC.
-					while getgenv().__AQToggleCycleGeneration == cycleGeneration and not IsNearSelectedQuestNPC() do task.wait(0.25) end
-					if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-					if IsOnSelectedFarmIsland() and IsNearSelectedQuestNPC() then
-						SetAutoQuestToggle(false)
-						isEnabled = false
-						WaitOnIsland(5) -- dá tempo para a missão ser registrada
-						if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-						local distance = GetSelectedQuestNPCDistance()
-						if not distance or distance > 10 then WaitOnIsland(5) end
-						WaitOnIsland(75)
-						if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-						if IsOnSelectedFarmIsland() then isEnabled = true; SetAutoQuestToggle(true) end
-					end
-				else
-					WaitOnIsland(1)
+					if not IsNearSelectedQuestNPC() then task.wait(5) end
 				end
+			else
+				-- Desligado por 75s; depois reativa para buscar/aceitar a próxima missão.
+				local deadline = tick() + 75
+				while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and tick() < deadline do task.wait(0.25) end
+				if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+				if IsOnSelectedFarmIsland() then isEnabled = true; SetAutoQuestToggle(true) end
 			end
 		end
 	end)
 end
-
 -- Mantém os toggles "Farm Mastery" e "Start Farm" visualmente iguais ao estado real.
 function SyncMasteryToggle(title, v)
 	if getgenv().__MasterySyncing then
@@ -8202,15 +8184,18 @@ getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 
 -- O farm só espera quando o Auto Quest está ligado, tem alvo e ainda não há missão ativa.
 function AQNeedsQuest()
+    if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
+        return false
+    end
     if Settings["Farm Mastery"] and Settings["Start Farm"] then
         return false
     end
-    local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
-    if not selected or selected == "Aura Farm" or Settings["Farm Material"] then
+    if getgenv().__AQGiveUp and tick() < getgenv().__AQGiveUp then
         return false
     end
-    -- Os quatro farms só são liberados quando a missão estiver realmente ativa.
-    -- Se o ciclo estiver na fase desligada, o farm espera até o Auto Quest voltar.
+    if tick() - (getgenv().__AQReady or 0) > 2 then
+        return false -- o Auto Quest não está em condições de agir: o farm segue normal
+    end
     return not AQIsQuestActive()
 end
 
@@ -13865,6 +13850,140 @@ FarmingSeaEventSection.CreateToggle(
 			getgenv().StopBoatSeaEvent = false
 		end
 		SaveSettings("Auto Sea Event", _)
+	end
+)
+
+-- Auto Multi Sea Event: aguarda os jogadores selecionados sentarem no barco,
+-- avança 650 studs usando o VehicleSeat e só então inicia o Auto Sea Event.
+function GetSelectedMultiSeaEventPlayers()
+	local selected = Settings["Select Player Multi Sea Event"]
+	local result = {}
+	if type(selected) ~= "table" then return result end
+	for name, enabled in pairs(selected) do
+		if enabled == true then
+			local player = game:GetService("Players"):FindFirstChild(name)
+			if player and player ~= t then table.insert(result, player) end
+		end
+	end
+	return result
+end
+
+function IsSelectedMultiSeaEventPlayersInBoat(boat)
+	local selected = GetSelectedMultiSeaEventPlayers()
+	if #selected == 0 or not boat or not boat.Parent then return false end
+	for _, player in ipairs(selected) do
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local seat = humanoid and humanoid.SeatPart
+		if not seat or not (seat:IsA("Seat") or seat:IsA("VehicleSeat")) or not seat:IsDescendantOf(boat) then
+			return false
+		end
+	end
+	return true
+end
+
+local function SetMultiSeaEventForward(seat, enabled)
+	if not seat or not seat.Parent then return end
+	pcall(function() seat.ThrottleFloat = enabled and 1 or 0 end)
+	pcall(function() seat.Throttle = enabled and 1 or 0 end)
+end
+
+local function StartAutoSeaEventFromMulti()
+	if Settings["Auto Sea Event"] then return end
+	SaveSettings("Auto Sea Event", true)
+	getgenv().StopBoatSeaEvent = true
+	spawn(function()
+		while Settings["Auto Sea Event"] and task.wait() do
+			pcall(function() AutoSeabeast() end)
+		end
+	end)
+end
+
+-- Dedicated page for the Multi Sea Event system.
+FarmingMultiSeaEventTab = Main.CreatePage({ Page_Name = "Farming Multi Sea Event", Page_Title = "Farming Multi Sea Event" })
+FarmingMultiSeaEventSection = FarmingMultiSeaEventTab.CreateSection("Farming Multi Sea Event")
+
+DropdownSelectPlayerMultiSeaEvent = FarmingMultiSeaEventSection.CreateDropdown(
+	{
+		Title = "Select Player Multi Sea Event",
+		List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
+		Search = true,
+		Selected = true,
+		Default = Settings["Select Player Multi Sea Event"] or nil,
+	},
+	function(selected, changed)
+		SaveSettings("Select Player Multi Sea Event", selected, changed)
+	end
+)
+FarmingMultiSeaEventSection.CreateButton({ Title = "Refresh Multi Sea Event Players" }, function()
+	DropdownSelectPlayerMultiSeaEvent:GetNewList(DetectNamePlayerMulti())
+end)
+FarmingMultiSeaEventSection.CreateToggle(
+	{ Title = "Auto Multi Sea Event", Desc = "Waits for selected players to sit in your boat, moves forward 650 studs, then starts Auto Sea Event.", Default = Settings["Auto Multi Sea Event"] or false },
+	function(enabled)
+		SaveSettings("Auto Multi Sea Event", enabled)
+		if not enabled then
+			local boat = checkboat()
+			local seat = boat and boat:FindFirstChild("VehicleSeat", true)
+			SetMultiSeaEventForward(seat, false)
+			getgenv().MultiSeaEventMovingForward = false
+			return
+		end
+		getgenv().MultiSeaEventCycle = (getgenv().MultiSeaEventCycle or 0) + 1
+		local cycle = getgenv().MultiSeaEventCycle
+		spawn(function()
+			while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventCycle == cycle do
+				local selected = GetSelectedMultiSeaEventPlayers()
+				local boat = checkboat()
+				local seat = boat and boat:FindFirstChild("VehicleSeat", true)
+				local localCharacter = t.Character
+				local localHumanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
+				if #selected == 0 then
+					if not getgenv().MultiSeaEventNoPlayerNoti or tick() - getgenv().MultiSeaEventNoPlayerNoti >= 3 then
+						getgenv().MultiSeaEventNoPlayerNoti = tick()
+						A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Select at least one player for Auto Multi Sea Event", ShowTime = 3 })
+					end
+				elseif boat and seat and seat:IsA("VehicleSeat") and IsSelectedMultiSeaEventPlayersInBoat(boat) then
+					if localHumanoid and localHumanoid.SeatPart == seat then
+						if not getgenv().MultiSeaEventMoveDone then
+							getgenv().MultiSeaEventMovingForward = true
+							local startPosition = seat.Position
+							local valid = true
+							SetMultiSeaEventForward(seat, true)
+							while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventCycle == cycle and seat.Parent and (seat.Position - startPosition).Magnitude < 650 do
+								if not IsSelectedMultiSeaEventPlayersInBoat(boat) then valid = false break end
+								local currentCharacter = t.Character
+								local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+								if not currentHumanoid or currentHumanoid.SeatPart ~= seat then valid = false break end
+								SetMultiSeaEventForward(seat, true)
+								task.wait()
+							end
+							SetMultiSeaEventForward(seat, false)
+							getgenv().MultiSeaEventMovingForward = false
+							if valid and seat.Parent and (seat.Position - startPosition).Magnitude >= 650 and IsSelectedMultiSeaEventPlayersInBoat(boat) then
+								getgenv().MultiSeaEventMoveDone = true
+								StartAutoSeaEventFromMulti()
+							end
+						end
+					else
+						SetMultiSeaEventForward(seat, false)
+						if localHumanoid and localHumanoid.SeatPart ~= seat then toTarget(seat.CFrame) end
+					end
+				else
+					getgenv().MultiSeaEventMoveDone = false
+					SetMultiSeaEventForward(seat, false)
+					if boat and seat and localHumanoid and localHumanoid.SeatPart ~= seat then toTarget(seat.CFrame) end
+					if not getgenv().MultiSeaEventWaitingNoti or tick() - getgenv().MultiSeaEventWaitingNoti >= 3 then
+						getgenv().MultiSeaEventWaitingNoti = tick()
+						A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Waiting for selected players to sit in your boat", ShowTime = 3 })
+					end
+				end
+				task.wait(0.25)
+			end
+			local boat = checkboat()
+			SetMultiSeaEventForward(boat and boat:FindFirstChild("VehicleSeat", true), false)
+			getgenv().MultiSeaEventMovingForward = false
+		end)
 	end
 )
 local _
