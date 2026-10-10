@@ -13859,7 +13859,7 @@ local FarmingMultiSeaEventSection = SeaEventTab.CreateSection("Farming Multi Sea
 local MultiSeaEventPlayerDropdown = FarmingMultiSeaEventSection.CreateDropdown(
     {
         Title = "Select Player Multi Sea Event",
-        List = PrepareMultiSelectList(DetectNamePlayerMulti()),
+        List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
         Search = true,
         Selected = true,
         Default = Settings["Select Player Multi Sea Event"] or nil,
