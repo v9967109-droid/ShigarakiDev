@@ -6946,7 +6946,8 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
 	end
 )
--- Legacy timed Auto Quest toggle cycle removed: the state machine below is the sole controller.
+-- Auto Quest: ciclo por temporizador removido. A máquina de estados abaixo é a única
+-- responsável por aceitar missões; não desligar/ligar o toggle por tempo.
 -- Mantém os toggles "Farm Mastery" e "Start Farm" visualmente iguais ao estado real.
 function SyncMasteryToggle(title, v)
 	if getgenv().__MasterySyncing then
@@ -8024,20 +8025,9 @@ function AQIsQuestActive()
     end)
     local shown = false
     pcall(function()
-        local playerGui = t and t:FindFirstChild("PlayerGui")
-        local main = playerGui and playerGui:FindFirstChild("Main")
+        local main = t.PlayerGui and t.PlayerGui:FindFirstChild("Main")
         local q = main and main:FindFirstChild("Quest")
-        shown = q ~= nil and q:IsA("GuiObject") and q.Visible == true
-        -- Update 30 may rearrange the quest panel. Also look for a visible GUI
-        -- named Quest anywhere under PlayerGui instead of assuming Main.Quest.
-        if not shown and playerGui then
-            for _, gui in ipairs(playerGui:GetDescendants()) do
-                if gui.Name == "Quest" and gui:IsA("GuiObject") and gui.Visible then
-                    shown = true
-                    break
-                end
-            end
-        end
+        shown = q ~= nil and q.Visible == true
     end)
     if not (has or shown) then
         -- Histerese: a interface/os dados da missão podem piscar por 1 frame ao matar um mob. Só conta como
@@ -8270,10 +8260,7 @@ do
         if opened then
             State.fails = 0
             State.nextTry = tick() + 1
-            -- Keep the accepted state during Update 30's UI/data synchronization.
             State.graceUntil = tick() + 8
-            State.wasActive = true
-            getgenv().__AQLastRaw = tick()
             getgenv().__AQGiveUp = nil
             -- Solta o personagem do NPC: cancela o movimento até ele para o farm assumir já.
             pcall(function()
