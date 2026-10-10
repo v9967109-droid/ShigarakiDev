@@ -14149,8 +14149,10 @@ spawn(function()
 	end
 end)
 -- Farming Multi Sea Event: seção isolada, reutilizando os seletores e o Auto Sea Event existentes.
-local FarmingMultiSeaEventSection = SeaEventTab.CreateSection("Farming Multi Sea Event")
-local MultiSeaEventPlayerDropdown = FarmingMultiSeaEventSection.CreateDropdown(
+do
+local FarmingMultiSeaEvent = {}
+FarmingMultiSeaEvent.Section = SeaEventTab.CreateSection("Farming Multi Sea Event")
+FarmingMultiSeaEvent.Dropdown = FarmingMultiSeaEvent.Section.CreateDropdown(
 	{
 		Title = "Select Player Multi Sea Event",
 		List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
@@ -14162,10 +14164,10 @@ local MultiSeaEventPlayerDropdown = FarmingMultiSeaEventSection.CreateDropdown(
 		SaveSettings("Select Player Multi Sea Event", value, state)
 	end
 )
-FarmingMultiSeaEventSection.CreateButton({ Title = "Refresh Player" }, function()
-	MultiSeaEventPlayerDropdown:GetNewList(DetectNamePlayerMulti())
+FarmingMultiSeaEvent.Section.CreateButton({ Title = "Refresh Player" }, function()
+	FarmingMultiSeaEvent.Dropdown:GetNewList(DetectNamePlayerMulti())
 end)
-FarmingMultiSeaEventSection.CreateToggle(
+FarmingMultiSeaEvent.Section.CreateToggle(
 	{
 		Title = "Auto Multi Sea Event",
 		Desc = "Wait for selected players to sit in your boat, move forward 650 studs, then start Sea Event.",
@@ -14272,6 +14274,8 @@ FarmingMultiSeaEventSection.CreateToggle(
 		end)
 	end
 )
+
+end -- fim do escopo isolado de Farming Multi Sea Event
 
 LeviathanEventSection = SeaEventTab.CreateSection("Leviathan Event")
 LeviathanEventSection.CreateSlider(
