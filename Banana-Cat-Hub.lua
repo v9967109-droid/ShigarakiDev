@@ -6940,8 +6940,10 @@ SettingAutoFarmSection.CreateToggle(
 	end
 )
 SettingAutoFarmSection.CreateToggle(
-	{ Title = "Auto Quest", Desc = "Only accepts the quest of the selected farm (Level/Bones/Katakuri/Tyrant).", Default = Settings["Auto Quest [Katakuri/Bone/Tyrant]"] or false },
+	{ Title = "Auto Quest", Desc = "Accepts a quest, turns off after 10 seconds, then turns back on after 60 seconds.", Default = Settings["Auto Quest [Katakuri/Bone/Tyrant]"] or false },
 	function(V)
+		-- Any manual interaction with this toggle cancels the current automatic cycle.
+		getgenv().__AQCycleToken = (getgenv().__AQCycleToken or 0) + 1
 		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
 	end
 )
@@ -8108,6 +8110,18 @@ getgenv().__AQGen = (getgenv().__AQGen or 0) + 1
 getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 
 -- O farm só espera quando o Auto Quest está ligado, tem alvo e ainda não há missão ativa.
+local function AQSetAutoQuestEnabled(enabled)
+    -- Update only Auto Quest state. SaveSettings(key, false) has global movement-reset side effects,
+    -- which would interrupt the independent farm routines during the 60-second cooldown.
+    Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = enabled
+    pcall(function()
+        if not isfolder(FolderName) then
+            makefolder(FolderName)
+        end
+        writefile(FolderName .. "/" .. SaveFileName, HttpService:JSONEncode(Settings))
+    end)
+end
+
 function AQNeedsQuest()
     if not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
         return false
@@ -8259,6 +8273,24 @@ do
             State.nextTry = tick() + 1
             State.graceUntil = tick() + 8
             getgenv().__AQGiveUp = nil
+            -- Ciclo pedido: 10s depois de aceitar, desliga Auto Quest; 60s depois, liga novamente.
+            -- Não desliga os farms nem o FarmMethod. Uma interação manual cancela este ciclo.
+            local cycleToken = getgenv().__AQCycleToken or 0
+            task.spawn(function()
+                task.wait(10)
+                if getgenv().__AQCycleToken ~= cycleToken
+                    or not Settings["Auto Quest [Katakuri/Bone/Tyrant]"] then
+                    return
+                end
+                AQSetAutoQuestEnabled(false)
+                task.wait(60)
+                if getgenv().__AQCycleToken ~= cycleToken then
+                    return
+                end
+                if GetSelectedIndividualFarm() and not (Settings["Farm Mastery"] and Settings["Start Farm"]) then
+                    AQSetAutoQuestEnabled(true)
+                end
+            end)
             -- Solta o personagem do NPC: cancela o movimento até ele para o farm assumir já.
             pcall(function()
                 TweenManager.CancelCurrent()
