@@ -6939,11 +6939,15 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Hop Find Katakuri", o)
 	end
 )
+-- Auto Quest começa ligado sempre que o script é executado.
+Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = true
 SettingAutoFarmSection.CreateToggle(
-	{ Title = "Auto Quest", Desc = "Accepts a quest, turns off after 10 seconds, then turns back on after 60 seconds.", Default = Settings["Auto Quest [Katakuri/Bone/Tyrant]"] or false },
+	{ Title = "Auto Quest", Desc = "Starts enabled; turns off 10 seconds after accepting a quest, then turns on again after 45 seconds.", Default = true },
 	function(V)
-		-- Any manual interaction with this toggle cancels the current automatic cycle.
-		getgenv().__AQCycleToken = (getgenv().__AQCycleToken or 0) + 1
+		-- Alterações automáticas sincronizam a interface sem cancelar o próprio ciclo.
+		if not getgenv().__AQAutoSyncing then
+			getgenv().__AQCycleToken = (getgenv().__AQCycleToken or 0) + 1
+		end
 		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
 	end
 )
@@ -8111,9 +8115,19 @@ getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 
 -- O farm só espera quando o Auto Quest está ligado, tem alvo e ainda não há missão ativa.
 local function AQSetAutoQuestEnabled(enabled)
-    -- Update only Auto Quest state. SaveSettings(key, false) has global movement-reset side effects,
-    -- which would interrupt the independent farm routines during the 60-second cooldown.
+    -- Atualiza estado interno E a toggle visual; não usa SaveSettings para evitar efeitos colaterais nos farms.
+    getgenv().__AQAutoSyncing = true
     Settings["Auto Quest [Katakuri/Bone/Tyrant]"] = enabled
+    pcall(function()
+        local opt = Options and Options["Auto Quest"]
+        local control = opt and opt.FunctionCreate
+        if control and control.SetValue then
+            control:SetValue(enabled)
+        elseif control and control.SetStage then
+            control:SetStage(enabled)
+        end
+    end)
+    getgenv().__AQAutoSyncing = false
     pcall(function()
         if not isfolder(FolderName) then
             makefolder(FolderName)
