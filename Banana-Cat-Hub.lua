@@ -6946,23 +6946,19 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", V)
 	end
 )
--- Ciclo solicitado: Auto Quest ligado por 10s e desligado por 45s, repetidamente.
--- Mantém a mudança sincronizada com o toggle real da interface; não altera FarmMethod nem outras farms.
+-- Ciclo Auto Quest: 10s ligado e 75s desligado, somente na ilha do farm selecionado.
+-- Fora da ilha correspondente, o ciclo fica pausado e não altera o toggle.
 do
 	getgenv().__AQToggleCycleGeneration = (getgenv().__AQToggleCycleGeneration or 0) + 1
 	local cycleGeneration = getgenv().__AQToggleCycleGeneration
 	local toggleKey = "Auto Quest [Katakuri/Bone/Tyrant]"
 	local function SetAutoQuestToggle(value)
 		getgenv().__AQCycleSync = true
-		pcall(function()
-			SaveSettings(toggleKey, value)
-		end)
+		pcall(function() SaveSettings(toggleKey, value) end)
 		pcall(function()
 			local option = Options and Options["Auto Quest"]
 			local control = option and option.FunctionCreate
-			if control and control.SetValue then
-				control:SetValue(value)
-			end
+			if control and control.SetValue then control:SetValue(value) end
 		end)
 		task.delay(0.25, function()
 			if getgenv().__AQToggleCycleGeneration == cycleGeneration then
@@ -6970,15 +6966,47 @@ do
 			end
 		end)
 	end
+	local function IsOnSelectedFarmIsland()
+		local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
+		if not selected or selected == "Aura Farm" or Settings["Farm Material"] then return false end
+		local targetPosition
+		if selected == "Auto Farm Level" then
+			pcall(function()
+				local info = GetLevelQuestInfo(t.Data.Level.Value)
+				if info and info.Pos then
+					targetPosition = typeof(info.Pos) == "CFrame" and info.Pos.Position or info.Pos
+				end
+			end)
+		else
+			local info = AutoQuestInfo and AutoQuestInfo[selected]
+			local points = getgenv().questpoint
+			local cf = info and points and points[info[2]]
+			if cf then targetPosition = cf.Position end
+		end
+		local root = t.Character and t.Character:FindFirstChild("HumanoidRootPart")
+		if not root or not targetPosition then return false end
+		-- NPC position is used as the island anchor for the currently selected farm.
+		return (root.Position - targetPosition).Magnitude <= 2500
+	end
 	task.spawn(function()
+		local isEnabled = true
 		SetAutoQuestToggle(true)
 		while getgenv().__AQToggleCycleGeneration == cycleGeneration do
-			task.wait(10)
-			if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-			SetAutoQuestToggle(false)
-			task.wait(45)
-			if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
-			SetAutoQuestToggle(true)
+			if IsOnSelectedFarmIsland() then
+				local duration = isEnabled and 10 or 75
+				local deadline = tick() + duration
+				while getgenv().__AQToggleCycleGeneration == cycleGeneration and IsOnSelectedFarmIsland() and tick() < deadline do
+					task.wait(0.25)
+				end
+				if getgenv().__AQToggleCycleGeneration ~= cycleGeneration then break end
+				if IsOnSelectedFarmIsland() then
+					isEnabled = not isEnabled
+					SetAutoQuestToggle(isEnabled)
+				end
+			else
+				-- Fora da ilha do farm selecionado, não força ligar/desligar; aguarda entrar.
+				task.wait(1)
+			end
 		end
 	end)
 end
