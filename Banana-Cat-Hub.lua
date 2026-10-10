@@ -14148,6 +14148,97 @@ spawn(function()
 		end)
 	end
 end)
+-- Farming Multi Sea Event: usa os seletores já existentes e mantém a lógica isolada.
+local FarmingMultiSeaEventSection = SeaEventTab.CreateSection("Farming Multi Sea Event")
+local MultiSeaEventPlayerDropdown = FarmingMultiSeaEventSection.CreateDropdown(
+	{
+		Title = "Select Player Multi Sea Event",
+		List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
+		Search = true,
+		Selected = true,
+		Default = Settings["Select Player Multi Sea Event"] or nil,
+	},
+	function(value, state)
+		SaveSettings("Select Player Multi Sea Event", value, state)
+	end
+)
+FarmingMultiSeaEventSection.CreateButton({ Title = "Refresh Player" }, function()
+	MultiSeaEventPlayerDropdown:GetNewList(DetectNamePlayerMulti())
+end)
+
+FarmingMultiSeaEventSection.CreateToggle(
+	{ Title = "Auto Multi Sea Event", Desc = "Wait for selected players to sit in the boat, move forward, then start Sea Event.", Default = Settings["Auto Multi Sea Event"] or false },
+	function(enabled)
+		SaveSettings("Auto Multi Sea Event", enabled)
+		getgenv().MultiSeaEventRunId = (getgenv().MultiSeaEventRunId or 0) + 1
+		local runId = getgenv().MultiSeaEventRunId
+		if not enabled then
+			pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+			return
+		end
+		spawn(function()
+			local function selectedPlayersAreSeated(boat)
+				local selected = Settings["Select Player Multi Sea Event"]
+				if type(selected) ~= "table" then return false end
+				local count = 0
+				for playerName, chosen in pairs(selected) do
+					if chosen then
+						local player = game:GetService("Players"):FindFirstChild(playerName)
+						if player and player ~= t then
+							count = count + 1
+							local character = player.Character
+							local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+							local seatPart = humanoid and humanoid.SeatPart
+							if not seatPart or not seatPart:IsDescendantOf(boat) then return false end
+						end
+					end
+				end
+				return count > 0
+			end
+			local moved = false
+			while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId do
+				local ok, boat = pcall(checkboat)
+				if ok and boat and boat.Parent then
+					local seat = boat:FindFirstChild("VehicleSeat", true)
+					local character = t.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					if seat and seat:IsA("VehicleSeat") and humanoid and humanoid.SeatPart == seat and selectedPlayersAreSeated(boat) then
+						if not moved then
+							local startPos = seat.Position
+						local valid = true
+						pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.W, false, game) end)
+						while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId and seat.Parent and (seat.Position - startPos).Magnitude < 650 do
+							if not selectedPlayersAreSeated(boat) then valid = false; break end
+							local currentCharacter = t.Character
+						local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+							if not currentHumanoid or currentHumanoid.SeatPart ~= seat then valid = false; break end
+							task.wait(0.1)
+						end
+						pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+						if valid and seat.Parent and (seat.Position - startPos).Magnitude >= 650 and selectedPlayersAreSeated(boat) then
+							moved = true
+							if not Settings["Auto Sea Event"] then
+								SaveSettings("Auto Sea Event", true)
+								spawn(function()
+									while Settings["Auto Multi Sea Event"] and Settings["Auto Sea Event"] and getgenv().MultiSeaEventRunId == runId do
+										pcall(function() AutoSeabeast() end)
+										task.wait(0.1)
+									end
+								end)
+							end
+						end
+						end
+					else
+						pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+					end
+				end
+				task.wait(0.25)
+			end
+			pcall(function() game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+		end)
+	end
+)
+
 LeviathanEventSection = SeaEventTab.CreateSection("Leviathan Event")
 LeviathanEventSection.CreateSlider(
 	{ Title = "Distance Auto Buy Boat", Min = 0, Max = 5000, Default = math.min(tonumber(Settings["Distance Auto Buy Boat"]) or 1250, 5000), Precise = true },
