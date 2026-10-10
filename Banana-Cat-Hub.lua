@@ -13853,25 +13853,42 @@ FarmingSeaEventSection.CreateToggle(
 	end
 )
 
--- Auto Multi Sea Event: aguarda os jogadores selecionados sentarem no barco,
--- avança 650 studs usando o VehicleSeat e só então inicia o Auto Sea Event.
-function GetSelectedMultiSeaEventPlayers()
+
+-- Farming Multi Sea Event: seção isolada para não alterar os controles existentes.
+local FarmingMultiSeaEventSection = SeaEventTab.CreateSection("Farming Multi Sea Event")
+local MultiSeaEventPlayerDropdown = FarmingMultiSeaEventSection.CreateDropdown(
+	{
+		Title = "Select Player Multi Sea Event",
+		List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
+		Search = true,
+		Selected = true,
+		Default = Settings["Select Player Multi Sea Event"] or nil,
+	},
+	function(value, state)
+		SaveSettings("Select Player Multi Sea Event", value, state)
+	end
+)
+FarmingMultiSeaEventSection.CreateButton({ Title = "Refresh Player" }, function()
+	MultiSeaEventPlayerDropdown:GetNewList(DetectNamePlayerMulti())
+end)
+
+local function GetMultiSeaEventSelectedPlayers()
 	local selected = Settings["Select Player Multi Sea Event"]
-	local result = {}
-	if type(selected) ~= "table" then return result end
+	local players = {}
+	if type(selected) ~= "table" then return players end
 	for name, enabled in pairs(selected) do
 		if enabled == true then
 			local player = game:GetService("Players"):FindFirstChild(name)
-			if player and player ~= t then table.insert(result, player) end
+			if player and player ~= t then table.insert(players, player) end
 		end
 	end
-	return result
+	return players
 end
 
-function IsSelectedMultiSeaEventPlayersInBoat(boat)
-	local selected = GetSelectedMultiSeaEventPlayers()
-	if #selected == 0 or not boat or not boat.Parent then return false end
-	for _, player in ipairs(selected) do
+local function AreMultiSeaEventPlayersSeated(boat)
+	local players = GetMultiSeaEventSelectedPlayers()
+	if #players == 0 or not boat or not boat.Parent then return false end
+	for _, player in ipairs(players) do
 		local character = player.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local seat = humanoid and humanoid.SeatPart
@@ -13882,13 +13899,14 @@ function IsSelectedMultiSeaEventPlayersInBoat(boat)
 	return true
 end
 
-local function SetMultiSeaEventForward(seat, enabled)
+local function SetMultiSeaEventBoatForward(seat, enabled)
 	if not seat or not seat.Parent then return end
 	pcall(function() seat.ThrottleFloat = enabled and 1 or 0 end)
 	pcall(function() seat.Throttle = enabled and 1 or 0 end)
 end
 
-local function StartAutoSeaEventFromMulti()
+local function StartSeaEventAfterMultiDrive()
+	-- Se Auto Sea Event já está ativo, deixa a rotina existente cuidar dele.
 	if Settings["Auto Sea Event"] then return end
 	SaveSettings("Auto Sea Event", true)
 	getgenv().StopBoatSeaEvent = true
@@ -13899,89 +13917,64 @@ local function StartAutoSeaEventFromMulti()
 	end)
 end
 
--- Dedicated page for the Multi Sea Event system.
-FarmingMultiSeaEventTab = Main.CreatePage({ Page_Name = "Farming Multi Sea Event", Page_Title = "Farming Multi Sea Event" })
-FarmingMultiSeaEventSection = FarmingMultiSeaEventTab.CreateSection("Farming Multi Sea Event")
-
-DropdownSelectPlayerMultiSeaEvent = FarmingMultiSeaEventSection.CreateDropdown(
-	{
-		Title = "Select Player Multi Sea Event",
-		List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
-		Search = true,
-		Selected = true,
-		Default = Settings["Select Player Multi Sea Event"] or nil,
-	},
-	function(selected, changed)
-		SaveSettings("Select Player Multi Sea Event", selected, changed)
-	end
-)
-FarmingMultiSeaEventSection.CreateButton({ Title = "Refresh Multi Sea Event Players" }, function()
-	DropdownSelectPlayerMultiSeaEvent:GetNewList(DetectNamePlayerMulti())
-end)
 FarmingMultiSeaEventSection.CreateToggle(
-	{ Title = "Auto Multi Sea Event", Desc = "Waits for selected players to sit in your boat, moves forward 650 studs, then starts Auto Sea Event.", Default = Settings["Auto Multi Sea Event"] or false },
+	{
+		Title = "Auto Multi Sea Event",
+		Desc = "Wait for selected players to sit in your boat, move forward 650 studs, then start Sea Event.",
+		Default = Settings["Auto Multi Sea Event"] or false,
+	},
 	function(enabled)
 		SaveSettings("Auto Multi Sea Event", enabled)
-		if not enabled then
-			local boat = checkboat()
-			local seat = boat and boat:FindFirstChild("VehicleSeat", true)
-			SetMultiSeaEventForward(seat, false)
-			getgenv().MultiSeaEventMovingForward = false
-			return
-		end
 		getgenv().MultiSeaEventCycle = (getgenv().MultiSeaEventCycle or 0) + 1
 		local cycle = getgenv().MultiSeaEventCycle
+		getgenv().MultiSeaEventMoveDone = false
+		getgenv().MultiSeaEventMovingForward = false
+		if not enabled then
+			local boat = checkboat()
+			SetMultiSeaEventBoatForward(boat and boat:FindFirstChild("VehicleSeat", true), false)
+			return
+		end
 		spawn(function()
 			while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventCycle == cycle do
-				local selected = GetSelectedMultiSeaEventPlayers()
+				local selectedPlayers = GetMultiSeaEventSelectedPlayers()
 				local boat = checkboat()
 				local seat = boat and boat:FindFirstChild("VehicleSeat", true)
-				local localCharacter = t.Character
-				local localHumanoid = localCharacter and localCharacter:FindFirstChildOfClass("Humanoid")
-				if #selected == 0 then
-					if not getgenv().MultiSeaEventNoPlayerNoti or tick() - getgenv().MultiSeaEventNoPlayerNoti >= 3 then
-						getgenv().MultiSeaEventNoPlayerNoti = tick()
-						A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Select at least one player for Auto Multi Sea Event", ShowTime = 3 })
-					end
-				elseif boat and seat and seat:IsA("VehicleSeat") and IsSelectedMultiSeaEventPlayersInBoat(boat) then
-					if localHumanoid and localHumanoid.SeatPart == seat then
+				local character = t.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if #selectedPlayers > 0 and boat and seat and seat:IsA("VehicleSeat") and AreMultiSeaEventPlayersSeated(boat) then
+					if humanoid and humanoid.SeatPart == seat then
 						if not getgenv().MultiSeaEventMoveDone then
-							getgenv().MultiSeaEventMovingForward = true
 							local startPosition = seat.Position
-							local valid = true
-							SetMultiSeaEventForward(seat, true)
-							while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventCycle == cycle and seat.Parent and (seat.Position - startPosition).Magnitude < 650 do
-								if not IsSelectedMultiSeaEventPlayersInBoat(boat) then valid = false break end
-								local currentCharacter = t.Character
-								local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
-								if not currentHumanoid or currentHumanoid.SeatPart ~= seat then valid = false break end
-								SetMultiSeaEventForward(seat, true)
-								task.wait()
-							end
-							SetMultiSeaEventForward(seat, false)
-							getgenv().MultiSeaEventMovingForward = false
-							if valid and seat.Parent and (seat.Position - startPosition).Magnitude >= 650 and IsSelectedMultiSeaEventPlayersInBoat(boat) then
-								getgenv().MultiSeaEventMoveDone = true
-								StartAutoSeaEventFromMulti()
-							end
+						local valid = true
+						getgenv().MultiSeaEventMovingForward = true
+						while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventCycle == cycle and seat.Parent and (seat.Position - startPosition).Magnitude < 650 do
+							if not AreMultiSeaEventPlayersSeated(boat) then valid = false break end
+							local currentCharacter = t.Character
+							local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+							if not currentHumanoid or currentHumanoid.SeatPart ~= seat then valid = false break end
+							SetMultiSeaEventBoatForward(seat, true)
+							task.wait()
 						end
-					else
-						SetMultiSeaEventForward(seat, false)
-						if localHumanoid and localHumanoid.SeatPart ~= seat then toTarget(seat.CFrame) end
+						SetMultiSeaEventBoatForward(seat, false)
+						getgenv().MultiSeaEventMovingForward = false
+						if valid and seat.Parent and (seat.Position - startPosition).Magnitude >= 650 and AreMultiSeaEventPlayersSeated(boat) then
+							getgenv().MultiSeaEventMoveDone = true
+							StartSeaEventAfterMultiDrive()
+						end
 					end
 				else
+					SetMultiSeaEventBoatForward(seat, false)
+					if humanoid and seat and humanoid.SeatPart ~= seat then toTarget(seat.CFrame) end
+				end
+				else
+					SetMultiSeaEventBoatForward(seat, false)
+					getgenv().MultiSeaEventMovingForward = false
 					getgenv().MultiSeaEventMoveDone = false
-					SetMultiSeaEventForward(seat, false)
-					if boat and seat and localHumanoid and localHumanoid.SeatPart ~= seat then toTarget(seat.CFrame) end
-					if not getgenv().MultiSeaEventWaitingNoti or tick() - getgenv().MultiSeaEventWaitingNoti >= 3 then
-						getgenv().MultiSeaEventWaitingNoti = tick()
-						A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Waiting for selected players to sit in your boat", ShowTime = 3 })
-					end
 				end
 				task.wait(0.25)
 			end
 			local boat = checkboat()
-			SetMultiSeaEventForward(boat and boat:FindFirstChild("VehicleSeat", true), false)
+			SetMultiSeaEventBoatForward(boat and boat:FindFirstChild("VehicleSeat", true), false)
 			getgenv().MultiSeaEventMovingForward = false
 		end)
 	end
@@ -25274,7 +25267,7 @@ local BananaCatV14RecoveryIndex = {
     TargetSHA256 = "4dfc20987d38950df7ad9123b11b65278227eda71ee226682c91d8719524dd32",
     Proto164Instructions = 13807,
     Proto164BasicBlocks = 5499,
-    RequestedTabs = {"Status And Server", "LocalPlayer", "Setting Farm", "Hold and Select Skill", "Farming", "Stack Farming", "Farming Other", "Fruits and Raid,Dunge", "Sea Event", "Farming Multi Sea Event"},
+    RequestedTabs = {"Status And Server", "LocalPlayer", "Setting Farm", "Hold and Select Skill", "Farming", "Stack Farming", "Farming Other", "Fruits and Raid,Dunge", "Sea Event"},
     MissingRequestedTabs = {},
     CheckQuestRecovered = true,
     CheckQuestRecoveredCallSites = 0,
