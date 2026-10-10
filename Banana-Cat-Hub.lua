@@ -6939,47 +6939,40 @@ SettingAutoFarmSection.CreateToggle(
 		SaveSettings("Hop Find Katakuri", o)
 	end
 )
--- Toggles Auto Quest separados: cada farm guarda seu próprio estado.
-local function GetAutoQuestDefault(key)
-    if Settings[key] == nil then return Settings["Auto Quest [Katakuri/Bone/Tyrant]"] or false end
-    return Settings[key]
-end
-SettingAutoFarmSection.CreateToggle({ Title = "Quest Level Cycle", Desc = "Aceita missões de Level com ciclo independente.", Default = GetAutoQuestDefault("Auto Quest Level") }, function(v)
-    SaveSettings("Auto Quest Level", v)
-end)
-SettingAutoFarmSection.CreateToggle({ Title = "Quest Bones Cycle", Desc = "Aceita missões de Bones com ciclo independente.", Default = GetAutoQuestDefault("Auto Quest Bones") }, function(v)
-    SaveSettings("Auto Quest Bones", v)
-end)
-SettingAutoFarmSection.CreateToggle({ Title = "Quest Katakuri Cycle", Desc = "Aceita missões de Katakuri com ciclo independente.", Default = GetAutoQuestDefault("Auto Quest Katakuri") }, function(v)
-    SaveSettings("Auto Quest Katakuri", v)
-end)
-SettingAutoFarmSection.CreateToggle({ Title = "Quest Tyrant Cycle", Desc = "Aceita missões de Tyrant com ciclo independente.", Default = GetAutoQuestDefault("Auto Quest Tyrant of the Skies") }, function(v)
-    SaveSettings("Auto Quest Tyrant of the Skies", v)
-end)
--- Ciclos independentes por farm; proximidade do NPC = 50 studs.
+-- Auto Quest único: mantém o comportamento original e aplica ciclo de 10s/65s.
+SettingAutoFarmSection.CreateToggle(
+    { Title = "Auto Quest", Desc = "Pega primeiro a missão do farm selecionado. Ciclo: 10s ligado e 65s de espera.", Default = Settings["Auto Quest"] or Settings["Auto Quest [Katakuri/Bone/Tyrant]"] or false },
+    function(v)
+        SaveSettings("Auto Quest", v)
+        SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", v)
+        if not v then
+            getgenv().__AQCycleQuestActive = getgenv().__AQCycleQuestActive or {}
+            for _, farm in ipairs({"Auto Farm Level", "Auto Farm Bones", "Auto Farm Katakuri", "Auto Farm Tyrant of the Skies"}) do
+                getgenv().__AQCycleQuestActive[farm] = false
+            end
+        end
+    end
+)
+
+-- Ciclo único para o farm selecionado; o temporizador só avança perto do NPC (50 studs).
 do
     getgenv().__AQToggleCycleGeneration = (getgenv().__AQToggleCycleGeneration or 0) + 1
     local generation = getgenv().__AQToggleCycleGeneration
-    local legacyKey = "Auto Quest [Katakuri/Bone/Tyrant]"
     local farmConfig = {
-        ["Auto Farm Level"] = { setting = "Auto Quest Level", off = 40 },
-        ["Auto Farm Bones"] = { setting = "Auto Quest Bones", off = 45 },
-        ["Auto Farm Katakuri"] = { setting = "Auto Quest Katakuri", off = 75 },
-        ["Auto Farm Tyrant of the Skies"] = { setting = "Auto Quest Tyrant of the Skies", off = 75 },
+        ["Auto Farm Level"] = { off = 65 },
+        ["Auto Farm Bones"] = { off = 65 },
+        ["Auto Farm Katakuri"] = { off = 65 },
+        ["Auto Farm Tyrant of the Skies"] = { off = 65 },
     }
     local states = {}
-    for farm, cfg in pairs(farmConfig) do
-        states[farm] = { enabled = true, phase = "wait_npc", deadline = nil, confirmAt = nil }
-        if Settings[cfg.setting] == nil then
-            SaveSettings(cfg.setting, Settings[legacyKey] or false)
-        end
+    for farm in pairs(farmConfig) do
+        states[farm] = { phase = "wait_npc", deadline = nil, confirmAt = nil }
     end
     getgenv().__AQCycleQuestActive = getgenv().__AQCycleQuestActive or {}
-    local function SetLegacyToggle(value, farm)
+
+    local function SetCycleActive(farm, value)
         if farm then getgenv().__AQCycleQuestActive[farm] = value end
-        if Settings[legacyKey] ~= value then
-            SaveSettings(legacyKey, value)
-        end
+        SaveSettings("Auto Quest [Katakuri/Bone/Tyrant]", value)
     end
     local function GetNPCPosition(farm)
         if Settings["Farm Material"] then return nil end
@@ -7002,64 +6995,53 @@ do
         if not pos or not root then return math.huge end
         return (root.Position - pos).Magnitude
     end
-    local function IsSelectedAndOnIsland(farm)
-        if GetSelectedIndividualFarm() ~= farm then return false end
-        return DistToNPC(farm) <= 2500
-    end
     task.spawn(function()
         while getgenv().__AQToggleCycleGeneration == generation do
             local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm() or nil
-            local cfg = selected and farmConfig[selected]
             local state = selected and states[selected]
-            if not cfg or not state or not Settings[cfg.setting] then
-                SetLegacyToggle(false, selected)
-                if state then
-                    state.phase = "wait_npc"
-                    state.deadline = nil
-                    state.confirmAt = nil
+            if not Settings["Auto Quest"] or not selected or not state or Settings["Farm Material"] then
+                if selected then SetCycleActive(selected, false) end
+                for farm, st in pairs(states) do
+                    st.phase, st.deadline, st.confirmAt = "wait_npc", nil, nil
+                    getgenv().__AQCycleQuestActive[farm] = false
                 end
-                task.wait(0.5)
-            elseif not IsSelectedAndOnIsland(selected) then
-                -- O toggle fica ligado para permitir viajar até o NPC, mas o cronômetro pausa fora da ilha.
-                SetLegacyToggle(true, selected)
                 task.wait(0.5)
             else
                 local distance = DistToNPC(selected)
-                if state.phase == "wait_npc" then
-                    SetLegacyToggle(true, selected)
+                if distance > 2500 then
+                    -- Pause fora da área; não consome o ciclo durante o deslocamento.
+                    SetCycleActive(selected, true)
+                    task.wait(0.5)
+                elseif state.phase == "wait_npc" then
+                    SetCycleActive(selected, true)
                     if distance <= 50 then
                         state.phase = "count_on"
                         state.deadline = tick() + 10
                     end
                 elseif state.phase == "count_on" then
-                    SetLegacyToggle(true, selected)
-                    if tick() >= state.deadline then
-                        -- Após 10s, mantém ligado até retornar/chegar perto do NPC.
-                        state.phase = "wait_return_npc"
-                    end
+                    SetCycleActive(selected, true)
+                    if tick() >= state.deadline then state.phase = "wait_return_npc" end
                 elseif state.phase == "wait_return_npc" then
-                    SetLegacyToggle(true, selected)
+                    SetCycleActive(selected, true)
                     if distance <= 50 then
-                        SetLegacyToggle(false, selected)
+                        SetCycleActive(selected, false)
                         state.phase = "confirm_off"
                         state.confirmAt = tick() + 5
                     end
                 elseif state.phase == "confirm_off" then
-                    SetLegacyToggle(false, selected)
+                    SetCycleActive(selected, false)
                     if tick() >= state.confirmAt then
                         if distance <= 50 then
                             state.phase = "off_timer"
-                            state.deadline = tick() + cfg.off
+                            state.deadline = tick() + 65
                         else
-                            -- Se afastou, aguarda mais 5s antes de verificar novamente.
                             state.confirmAt = tick() + 5
                         end
                     end
                 elseif state.phase == "off_timer" then
-                    SetLegacyToggle(false, selected)
+                    SetCycleActive(selected, false)
                     if tick() >= state.deadline then
-                        state.phase = "wait_npc"
-                        state.deadline = nil
+                        state.phase, state.deadline, state.confirmAt = "wait_npc", nil, nil
                     end
                 end
                 task.wait(0.25)
@@ -8237,28 +8219,13 @@ getgenv().__AQReady, getgenv().__AQGiveUp = 0, nil
 -- O motor de missão é habilitado pelo toggle de ciclo do farm selecionado.
 function IsSelectedAutoQuestCycleEnabled()
     local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
-    local keys = {
-        ["Auto Farm Level"] = "Auto Quest Level",
-        ["Auto Farm Bones"] = "Auto Quest Bones",
-        ["Auto Farm Katakuri"] = "Auto Quest Katakuri",
-        ["Auto Farm Tyrant of the Skies"] = "Auto Quest Tyrant of the Skies",
-    }
-    local key = selected and keys[selected]
-    return key ~= nil and Settings[key] == true and getgenv().__AQCycleQuestActive and getgenv().__AQCycleQuestActive[selected] == true
+    return Settings["Auto Quest"] == true and selected ~= nil
+        and getgenv().__AQCycleQuestActive and getgenv().__AQCycleQuestActive[selected] == true
 end
 
--- True whenever the selected farm has its individual Quest Cycle enabled, even during its timed-off phase.
--- This keeps legacy quest acceptors from taking over while the cycle is temporarily off.
 function IsSelectedAutoQuestCycleConfigured()
     local selected = GetSelectedIndividualFarm and GetSelectedIndividualFarm()
-    local keys = {
-        ["Auto Farm Level"] = "Auto Quest Level",
-        ["Auto Farm Bones"] = "Auto Quest Bones",
-        ["Auto Farm Katakuri"] = "Auto Quest Katakuri",
-        ["Auto Farm Tyrant of the Skies"] = "Auto Quest Tyrant of the Skies",
-    }
-    local key = selected and keys[selected]
-    return key ~= nil and Settings[key] == true
+    return Settings["Auto Quest"] == true and selected ~= nil
 end
 
 -- O farm só espera quando o toggle de ciclo individual está ligado e ainda não há missão ativa.
