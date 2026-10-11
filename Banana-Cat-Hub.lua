@@ -14213,6 +14213,15 @@ FarmingMultiSeaEvent.Section.CreateToggle(
 			local movementCompleted = false
 			while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId do
 				local boatOk, boat = pcall(checkboat)
+				-- If the player does not own a boat yet, go to the Boat Dealer and buy the selected Sea Event boat.
+				-- Passing true lets BuyBoatAndTeleBoat run even before Auto Sea Event is enabled.
+				if boatOk and (not boat or not boat.Parent) and not movementCompleted then
+					pcall(function()
+						BuyBoatAndTeleBoat(true)
+					end)
+					task.wait(1)
+					boatOk, boat = pcall(checkboat)
+				end
 				if boatOk and boat and boat.Parent and not movementCompleted then
 					local seat = boat:FindFirstChild("VehicleSeat", true)
 					local character = t.Character
