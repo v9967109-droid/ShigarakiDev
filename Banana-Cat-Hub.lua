@@ -14149,6 +14149,8 @@ spawn(function()
 	end
 end)
 -- Farming Multi Sea Event: seção isolada, reutilizando os seletores e o Auto Sea Event existentes.
+-- A seleção de jogadores é temporária e nunca deve ser restaurada/salva.
+Settings["Select Player Multi Sea Event"] = nil
 do
 local FarmingMultiSeaEvent = {}
 FarmingMultiSeaEvent.Section = SeaEventTab.CreateSection("Farming Multi Sea Event")
@@ -14158,10 +14160,11 @@ FarmingMultiSeaEvent.Dropdown = FarmingMultiSeaEvent.Section.CreateDropdown(
 		List = PrepareMultiSelectList(DetectNamePlayerMulti(), Settings["Select Player Multi Sea Event"]),
 		Search = true,
 		Selected = true,
-		Default = Settings["Select Player Multi Sea Event"] or nil,
+		Default = nil,
 	},
 	function(value, state)
-		SaveSettings("Select Player Multi Sea Event", value, state)
+		-- Mantém a seleção apenas na memória desta sessão.
+		Settings["Select Player Multi Sea Event"] = value
 	end
 )
 FarmingMultiSeaEvent.Section.CreateButton({ Title = "Refresh Player" }, function()
