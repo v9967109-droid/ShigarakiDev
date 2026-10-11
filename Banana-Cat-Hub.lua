@@ -14186,100 +14186,120 @@ FarmingMultiSeaEvent.Section.CreateToggle(
 		end
 
 		task.spawn(function()
-			local function areSelectedPlayersSeatedInBoat(boat)
-				local selected = Settings["Select Player Multi Sea Event"]
-				if type(selected) ~= "table" then
-					return false
-				end
+			local Players = game:GetService("Players")
+			local VIM = game:GetService("VirtualInputManager")
+			local lastWaitNotice = 0
+			local lastBoatBuyAttempt = 0
 
-				local selectedCount = 0
-				for playerName, isSelected in pairs(selected) do
-					if isSelected then
-						local player = game:GetService("Players"):FindFirstChild(playerName)
-						if player and player ~= t then
-							selectedCount = selectedCount + 1
-							local character = player.Character
-							local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-							local seatPart = humanoid and humanoid.SeatPart
-							if not seatPart or not seatPart:IsDescendantOf(boat) then
-								return false
-							end
+			local function getSelectedPlayerNames()
+				local selected = Settings["Select Player Multi Sea Event"]
+				local names = {}
+				if type(selected) == "table" then
+					for name, isSelected in pairs(selected) do
+						if isSelected == true then
+							table.insert(names, tostring(name))
 						end
 					end
 				end
-				return selectedCount > 0
+				return names
+			end
+
+			local function areSelectedPlayersSeatedInBoat(boat)
+				local names = getSelectedPlayerNames()
+				if #names == 0 then
+					return false, {"Select Player Multi Sea Event"}
+				end
+				local missing = {}
+				for _, playerName in ipairs(names) do
+					local player = Players:FindFirstChild(playerName)
+					if not player or player == t then
+						if playerName ~= t.Name then table.insert(missing, playerName) end
+					else
+						local character = player.Character
+						local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+						local seatPart = humanoid and humanoid.SeatPart
+						if not seatPart or not seatPart:IsDescendantOf(boat) then
+							table.insert(missing, playerName)
+						end
+					end
+				end
+				return #missing == 0, missing
 			end
 
 			local movementCompleted = false
 			while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId do
-				local boatOk, boat = pcall(checkboat)
-				-- If the player does not own a boat yet, go to the Boat Dealer and buy the selected Sea Event boat.
-				-- Passing true lets BuyBoatAndTeleBoat run even before Auto Sea Event is enabled.
-				if boatOk and (not boat or not boat.Parent) and not movementCompleted then
-					pcall(function()
-						BuyBoatAndTeleBoat(true)
-					end)
+				local selectedNames = getSelectedPlayerNames()
+				if #selectedNames == 0 then
+					if tick() - lastWaitNotice >= 5 then
+						lastWaitNotice = tick()
+						pcall(function() A.CreateNoti({ Title = "Banana Cat Hub", Desc = "Select players in Select Player Multi Sea Event first", ShowTime = 5 }) end)
+					end
 					task.wait(1)
+					continue
+				end
+
+				local boatOk, boat = pcall(checkboat)
+				if boatOk and (not boat or not boat.Parent) and not movementCompleted then
+					-- Buy only after the user has selected players and a boat type.
+					if Settings["Select Boat"] and tick() - lastBoatBuyAttempt >= 5 then
+						lastBoatBuyAttempt = tick()
+						pcall(function() BuyBoatAndTeleBoat(true) end)
+					end
+					task.wait(0.5)
 					boatOk, boat = pcall(checkboat)
 				end
+
 				if boatOk and boat and boat.Parent and not movementCompleted then
 					local seat = boat:FindFirstChild("VehicleSeat", true)
 					local character = t.Character
 					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					if seat and seat:IsA("VehicleSeat") and humanoid and humanoid.SeatPart ~= seat then
+						-- Go directly to the vehicle seat; once seated, keep waiting for the selected players.
+						pcall(function() toTarget(seat.CFrame) end)
+						task.wait(0.5)
+					end
 
-					if seat and seat:IsA("VehicleSeat") and humanoid and humanoid.SeatPart == seat and areSelectedPlayersSeatedInBoat(boat) then
-						local startPosition = seat.Position
-						local movementValid = true
-						pcall(function()
-							game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.W, false, game)
-						end)
-
-						while Settings["Auto Multi Sea Event"]
-							and getgenv().MultiSeaEventRunId == runId
-							and seat.Parent
-							and (seat.Position - startPosition).Magnitude < 650 do
-							if not areSelectedPlayersSeatedInBoat(boat) then
-								movementValid = false
-								break
+					local seated, missingPlayers = areSelectedPlayersSeatedInBoat(boat)
+					if not seated then
+						if tick() - lastWaitNotice >= 5 then
+							lastWaitNotice = tick()
+							local desc = "Waiting for selected players to sit in the boat"
+							if #missingPlayers > 0 and missingPlayers[1] ~= "Select Player Multi Sea Event" then
+								desc = "Waiting for: " .. table.concat(missingPlayers, ", ")
 							end
-
-							local currentCharacter = t.Character
-							local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
-							if not currentHumanoid or currentHumanoid.SeatPart ~= seat then
-								movementValid = false
-								break
-							end
-							task.wait(0.1)
+							pcall(function() A.CreateNoti({ Title = "Banana Cat Hub", Desc = desc, ShowTime = 5 }) end)
 						end
-
-						pcall(function()
-							game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
-						end)
-
-						if movementValid and seat.Parent and (seat.Position - startPosition).Magnitude >= 650
-							and areSelectedPlayersSeatedInBoat(boat)
-							and Settings["Auto Multi Sea Event"]
-							and getgenv().MultiSeaEventRunId == runId then
-							movementCompleted = true
-							SaveSettings("Auto Sea Event", true)
-							task.spawn(function()
-								while Settings["Auto Multi Sea Event"]
-									and Settings["Auto Sea Event"]
-									and getgenv().MultiSeaEventRunId == runId do
-									pcall(AutoSeabeast)
-									task.wait(0.1)
-								end
-							end)
+					else
+						local currentCharacter = t.Character
+						local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+						if currentHumanoid and currentHumanoid.SeatPart == seat then
+							local startPosition = seat.Position
+							local movementValid = true
+							pcall(function() VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game) end)
+							while Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId and seat.Parent and (seat.Position - startPosition).Magnitude < 650 do
+								local stillSeated = areSelectedPlayersSeatedInBoat(boat)
+								local charNow = t.Character
+								local humNow = charNow and charNow:FindFirstChildOfClass("Humanoid")
+								if not stillSeated or not humNow or humNow.SeatPart ~= seat then movementValid = false; break end
+								task.wait(0.1)
+							end
+							pcall(function() VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
+							if movementValid and seat.Parent and (seat.Position - startPosition).Magnitude >= 650 and areSelectedPlayersSeatedInBoat(boat) and Settings["Auto Multi Sea Event"] and getgenv().MultiSeaEventRunId == runId then
+								movementCompleted = true
+								SaveSettings("Auto Sea Event", true)
+								task.spawn(function()
+									while Settings["Auto Multi Sea Event"] and Settings["Auto Sea Event"] and getgenv().MultiSeaEventRunId == runId do
+										pcall(AutoSeabeast)
+										task.wait(0.1)
+									end
+								end)
+							end
 						end
 					end
 				end
-
 				task.wait(0.25)
 			end
-
-			pcall(function()
-				game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.W, false, game)
-			end)
+			pcall(function() VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game) end)
 		end)
 	end
 )
