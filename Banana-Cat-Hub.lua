@@ -14192,12 +14192,19 @@ FarmingMultiSeaEvent.Section.CreateToggle(
 			local lastBoatBuyAttempt = 0
 
 			local function getSelectedPlayerNames()
+				-- Count only players who are still connected to this server.
+				-- Old saved selections for players who left must never block the event.
 				local selected = Settings["Select Player Multi Sea Event"]
 				local names = {}
+				local seen = {}
 				if type(selected) == "table" then
 					for name, isSelected in pairs(selected) do
 						if isSelected == true then
-							table.insert(names, tostring(name))
+							local playerName = tostring(name)
+							if not seen[playerName] and Players:FindFirstChild(playerName) and playerName ~= t.Name then
+								seen[playerName] = true
+								table.insert(names, playerName)
+							end
 						end
 					end
 				end
