@@ -11590,6 +11590,20 @@ DevilFruitSection.CreateToggle(
 	{ Title = "Random Devil Fruit", Desc = nil, Default = Settings["Random Devil Fruit"] or false },
 	function(y)
 		SaveSettings("Random Devil Fruit", y)
+		if y then
+			-- Reinicia o ciclo ao ativar o toggle, sem depender de um loop antigo.
+			getgenv().__RandomFruitNext = 0
+			getgenv().__RandomFruitWarn = 0
+			pcall(function()
+				A.CreateNoti({Title = "Banana Cat Hub", Desc = "Random Devil Fruit ativado", ShowTime = 4})
+			end)
+		else
+			getgenv().__RandomFruitBusy = false
+			getgenv().__SpinOpenedAt = nil
+			pcall(function()
+				A.CreateNoti({Title = "Banana Cat Hub", Desc = "Random Devil Fruit desativado", ShowTime = 4})
+			end)
+		end
 	end
 )
 DevilFruitSection.CreateToggle(
@@ -12106,89 +12120,72 @@ end
 function RandomFruit()
 	local Players = game:GetService("Players")
 	local LocalPlayer = Players.LocalPlayer
-	local Remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 	local CommF = Remotes and Remotes:FindFirstChild("CommF_")
-	if not CommF or not LocalPlayer then
-		return false
-	end
+	if not CommF or not LocalPlayer then return false end
+	if not Settings["Random Devil Fruit"] then return false end
 
-	local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	local SpinnerWindow = PlayerGui and PlayerGui:FindFirstChild("SpinnerWindow")
-	if SpinnerWindow and SpinnerWindow.Enabled then
-		return false -- janela de giro aberta: o loop de fora fecha
+	local function SpinnerOpen()
+		local gui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+		local win = gui and gui:FindFirstChild("SpinnerWindow")
+		return win and win.Enabled or false
 	end
-	if (getgenv().__RandomFruitNext or 0) > tick() then
-		return false
-	end
-	if getgenv().__RandomFruitBusy then
+	if SpinnerOpen() or (getgenv().__RandomFruitNext or 0) > tick() or getgenv().__RandomFruitBusy then
 		return false
 	end
 	getgenv().__RandomFruitBusy = true
 
-	local function Beli()
-		local ok, v = pcall(function()
-			return LocalPlayer.Data.Beli.Value
-		end)
-		return ok and v or nil
+	local function GetBeli()
+		local ok, value = pcall(function() return LocalPlayer.Data.Beli.Value end)
+		return ok and value or nil
 	end
-	local function SpinnerOpen()
-		local g = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-		local w = g and g:FindFirstChild("SpinnerWindow")
-		return w and w.Enabled or false
-	end
-
-	local log = {}
-	local bought = false
-	local function Attempt(label, fn)
-		if bought then
-			return
-		end
-		local before = Beli()
-		local ok, res = pcall(fn)
-		log[#log + 1] = label .. "=" .. (ok and tostring(res) or ("ERRO " .. tostring(res)))
-		local deadline = tick() + 1.2
+	local before = GetBeli()
+	local responses = {}
+	local success = false
+	local function Try(label, callback)
+		local ok, result = pcall(callback)
+		responses[#responses + 1] = label .. ":" .. (ok and tostring(result) or tostring(result))
+		local untilTime = tick() + 2
 		repeat
 			task.wait(0.1)
-			local now = Beli()
+			local now = GetBeli()
 			if SpinnerOpen() or (before and now and now < before) then
-				bought = true
+				success = true
 				return
 			end
-		until tick() > deadline
-		if ok and (res == 1 or res == true) then
-			bought = true
-		end
+		until tick() >= untilTime or not Settings["Random Devil Fruit"]
+		if ok and (result == true or result == 1) then success = true end
 	end
 
 	local okAll = pcall(function()
-		Attempt("Buy", function()
-			return CommF:InvokeServer("Cousin", "Buy")
-		end)
-		if not bought then
-			local box = GetBoxName()
-			local timeOk = CommF:InvokeServer("Cousin", "CheckTime", box)
-			log[#log + 1] = "CheckTime=" .. tostring(timeOk)
-			if timeOk == true or timeOk == nil then
-				Attempt("Box(" .. box .. ")", function()
-					return CommF:InvokeServer("Cousin", box)
-				end)
+		-- Método padrão do Cousin/Zioles: primeiro solicitar a compra diretamente.
+		Try("Cousin-Buy", function() return CommF:InvokeServer("Cousin", "Buy") end)
+		-- Fallback usado por algumas versões do banner; só tenta se a compra não abriu o giro.
+		if not success and Settings["Random Devil Fruit"] then
+			local boxName = GetBoxName()
+			local checkOk, available = pcall(function()
+				return CommF:InvokeServer("Cousin", "CheckTime", boxName)
+			end)
+			responses[#responses + 1] = "CheckTime:" .. tostring(available)
+			if checkOk and (available == true or available == nil) then
+				Try("Cousin-Box", function() return CommF:InvokeServer("Cousin", boxName) end)
 			end
 		end
 	end)
 
 	getgenv().__RandomFruitBusy = false
-	if bought then
-		getgenv().__RandomFruitNext = tick() + 1
+	if success then
+		getgenv().__RandomFruitNext = tick() + 2
 		return true
 	end
 	getgenv().__RandomFruitNext = tick() + 5
 	if (getgenv().__RandomFruitWarn or 0) < tick() then
-		getgenv().__RandomFruitWarn = tick() + 30
-		warn("[Banana Cat Hub] Random Devil Fruit não comprou. Respostas do servidor: " .. table.concat(log, " | ") .. (okAll and "" or " | (erro interno)"))
+		getgenv().__RandomFruitWarn = tick() + 20
+		warn("[Banana Cat Hub] Random Devil Fruit: nenhuma janela de giro detectada. " .. table.concat(responses, " | ") .. (okAll and "" or " | erro interno"))
 	end
 	return false
 end
-
 local FruitInfoModule = nil
 pcall(function()
 	FruitInfoModule = require(game:GetService("ReplicatedStorage").FruitInfo)
